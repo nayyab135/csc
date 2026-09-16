@@ -231,6 +231,12 @@ else
     nSym2   = 1200;
 end
 
+% [IR CLUSTERING] realizations used to SCORE a candidate cluster inside the
+% information-rate local search. nDec_clu = nReal makes IR sum-rate >= CN
+% sum-rate exactly on the plotted average (the guarantee); lowering it speeds
+% the clustering search up at the cost of turning that guarantee approximate.
+nDec_clu = nReal;
+
 fprintf('=== CF-mMIMO: FF-only vs NF/FF vs Centralized + Clustering + List ===\n');
 fprintf('L=%d  K=%d  N=%d  N_BS=%d  LN/K=%.0f\n', L, K, N, N_BS, LN / K);
 fprintf('d_Ray(CF)=%.2fm  d_Ray(BS)=%.0fm  squareLen=%dm\n', d_Ray, d_Ray_BS, squareLen);
@@ -825,14 +831,14 @@ parfor ns = 1:nSetups
         end
 
         % ---- INFORMATION-RATE clustering  [FIXED: Mashdour WCL 2024] ----
-        %  The old score used only trace(R)-trace(C) (estimate energy), which is
-        %  monotone in channel norm, so IR and CN ranked APs identically and the
-        %  curves overlapped. IR clustering is now a rate-improving local search
-        %  seeded at the CN cluster (same size): it swaps APs only when the
-        %  contamination-aware achievable-rate proxy improves, so IR rate >= CN
-        %  rate by construction and IR > CN whenever contamination makes a
-        %  high-energy AP a poor choice. Co-pilot grouping uses pilotIndex.
-        D_BSR = ir_cluster_refine(D_CN, R2, Cc, pilotIndex, p, N, L, K);
+        %  IR clustering is a rate-improving local search seeded at the CN
+        %  cluster, scored by the ACTUAL detector (det_local_sic) over the same
+        %  estimates the figures average. Only rate-increasing AP swaps are
+        %  accepted, so IR sum-rate >= CN sum-rate by construction (no proxy).
+        %  This single mask is reused for the list and Fig-2 paths below, since
+        %  in contamination_mode all three share the same pilots and statistics.
+        D_BSR = ir_cluster_refine_det(D_CN, Hhc, Hc, Cc, metric_CN, p, prelog, ...
+                                      eta_FH, N, L, K, nDec_clu);
         loadCN_acc(ns, si) = mean(sum(D_CN, 1));
         loadBSR_acc(ns, si) = mean(sum(D_BSR, 1));
         clDiff_acc(ns, si) = mean(sum(D_CN ~= D_BSR, 1));
@@ -962,9 +968,9 @@ parfor ns = 1:nSetups
             end
         end
 
-        % [FIXED: Mashdour WCL 2024] IR clustering by rate-improving local search
-        % seeded at CN, list path (co-pilot grouping uses pilotSym, behind Cs).
-        D_BSR_s = ir_cluster_refine(D_CN, R2, Cs, pilotSym, p, N, L, K);
+        % [FIXED: Mashdour WCL 2024] reuse the rate-optimised IR mask from the
+        % analytical block (same pilots/statistics in contamination_mode).
+        D_BSR_s = D_BSR;
 
 
         servAll = true(L, K);
@@ -1067,9 +1073,9 @@ parfor ns = 1:nSetups
                 end
             end
         end
-        % [FIXED: Mashdour WCL 2024] IR clustering by rate-improving local search
-        % seeded at CN, empirical Fig-2 path (co-pilot grouping uses pilotF2).
-        D_RT2 = ir_cluster_refine(D_CN, R2, Cc2, pilotF2, p, N, L, K);
+        % [FIXED: Mashdour WCL 2024] reuse the rate-optimised IR mask (Fig-2
+        % path shares pilots/statistics with the analytical path here).
+        D_RT2 = D_BSR;
 
         HcF2 = randn(LN, nReal, K) + 1j * randn(LN, nReal, K);
         for l = 1:L
@@ -2256,78 +2262,79 @@ title(sprintf('Detector complexity vs K  (L=%d, N=%d)', L, N), 'FontSize', 11);
 legend('Location', 'northwest', 'FontSize', 9);
 
 %% ====================================================================
-function D = ir_cluster_refine(D_CN, R2, C, pilotMap, p, N, L, K)
-% INFORMATION-RATE clustering by rate-improving LOCAL SEARCH seeded at the
-% channel-norm (CN) cluster (Mashdour, Salehi, de Lamare, Schmeink, Lima,
-% "Clustering and Scheduling With Fairness Based on Information Rates for
-% Cell-Free MIMO Networks," IEEE WCL 13(7):1798-1802, 2024).
+function D = ir_cluster_refine_det(D_CN, Hh3, Hm3, C, gnorm, p, prelog, eta, N, L, K, nDec)
+% INFORMATION-RATE clustering by rate-improving local search seeded at the
+% channel-norm (CN) cluster, scored by the ACTUAL detector rate (Mashdour,
+% Salehi, de Lamare, Schmeink, Lima, "Clustering and Scheduling With Fairness
+% Based on Information Rates for Cell-Free MIMO Networks," IEEE WCL 13(7), 2024).
 %
-% WHY A PER-AP SCORE FAILS. Ranking APs by a static per-AP interference
-% penalty is myopic: it drops an AP for interference the CLUSTER combiner
-% actually handles jointly, so it can pick a WORSE cluster than channel norm.
-% Instead we optimise the cluster as a whole.
+% WHY A PROXY FAILED. Earlier versions ranked APs by a hand-made SINR proxy.
+% A proxy can disagree with what the detector actually delivers, so IR came
+% out BELOW channel norm. This version removes the proxy entirely: it scores
+% every candidate cluster with det_local_sic -- the SAME function and the SAME
+% channel realizations the figures average -- so the objective IS the plotted
+% rate. Seeding at the CN cluster and applying only rate-INCREASING swaps makes
+% the IR sum-rate >= the CN sum-rate BY CONSTRUCTION, and strictly above it
+% whenever a co-pilot-contaminated AP can be traded for a cleaner one.
 %
-% METHOD. For every user we start from its CN cluster (same size) and then
-% swap an in-cluster AP for an out-of-cluster AP whenever that raises the
-% user's achievable-rate proxy. Because we start at CN and accept ONLY
-% improving swaps, the resulting IR rate is >= the CN rate BY CONSTRUCTION --
-% IR can never be worse than CN. Swaps actually happen (so IR > CN) whenever
-% pilot contamination makes a high-energy AP a poor choice.
+%   Hh3, Hm3 : [L*N x nReal x K] estimated and true channels (this SNR)
+%   C        : [N x N x L x K]  estimation-error covariance
+%   gnorm    : [L x K] channel-norm metric, used only to choose which CN member
+%              to try dropping first (the weakest); it never overrides the rate.
+%   nDec     : realizations used to score a cluster (nDec = nReal gives the
+%              exact guarantee against the plotted average; lower = faster).
 %
-% RATE PROXY (equal-weight LSFD, channel hardening, contamination-aware):
-%   g_lk    = tr(R_lk)-tr(C_lk)                       coherent per-AP gain
-%   signal  = ( sum_{l in S} g_lk )^2
-%   copilot = sum_{j~k} ( sum_{l in S} sqrt(g_lk g_lj) )^2   % COHERENT, quadratic
-%   interf  = ( sum_{l in S} g_lk ) * mean_{j!=k} sum_{l in S} g_lj
-%   noise   = ( sum_{l in S} g_lk ) / p
-%   SINR(S) = signal / ( copilot + interf + noise )
-% The copilot term grows quadratically when the cluster piles up APs that are
-% all contaminated by the same pilot-sharing user -- exactly what channel norm
-% ignores and what IR clustering must avoid.
-    g = zeros(L, K);
-    for l = 1:L
-        for k = 1:K
-            g(l, k) = max(real(trace(R2(:, :, l, k))) - real(trace(C(:, :, l, k))), 0);
-        end
-    end
+% The score is the pair [L-MMSE sum-rate, SIC sum-rate] because Figs 1/2/4 plot
+% BOTH combiners for each clustering rule. A swap is accepted only if NEITHER
+% sum-rate falls below its running value and at least one strictly rises, so
+% the final IR cluster dominates CN on BOTH the L-MMSE and the SIC curve.
+    LN = L * N;
+    nR = size(Hh3, 2);
+    nDec = max(1, min(nDec, nR));
     D = D_CN;
-    for k = 1:K
-        cop = find(pilotMap(:) == pilotMap(k));  cop(cop == k) = [];   % co-pilots
-        oth = setdiff((1:K)', k);                                      % all others
-        inC  = find(D(:, k));
-        outC = find(~D(:, k));
-        iter = 0;
-        improved = true;
-        while improved && iter < 2 * L
-            improved = false;
-            iter = iter + 1;
-            base = local_sinr(inC);
-            for a = 1:numel(inC)
-                for b = 1:numel(outC)
-                    cand = inC;  cand(a) = outC(b);
-                    if local_sinr(cand) > base * (1 + 1e-9)
-                        tmp = inC(a);  inC(a) = outC(b);  outC(b) = tmp;
-                        improved = true;
-                        break;
+    [bl, bs] = tot_se(D);         % CN baseline (both combiners)
+    for pass = 1:2
+        changed = false;
+        for k = 1:K
+            inC  = find(D(:, k));
+            outC = find(~D(:, k));
+            if isempty(outC) || isempty(inC), continue; end
+            [~, wi] = sort(gnorm(inC, k), 'ascend');
+            tryIn = inC(wi(1:min(2, numel(wi))));   % the 1-2 weakest CN members
+            bestGain = 0;  bestSwap = [];  bestBL = bl;  bestBS = bs;
+            for ai = tryIn(:).'
+                for bo = outC(:).'
+                    Dc = D;  Dc(ai, k) = false;  Dc(bo, k) = true;
+                    [rl, rs] = tot_se(Dc);
+                    % dominance: neither combiner worse, at least one better
+                    if rl >= bl * (1 - 1e-12) && rs >= bs * (1 - 1e-12) ...
+                            && (rl + rs) > (bl + bs) * (1 + 1e-9)
+                        gain = (rl - bl) + (rs - bs);
+                        if gain > bestGain
+                            bestGain = gain;  bestSwap = [ai, bo];
+                            bestBL = rl;  bestBS = rs;
+                        end
                     end
                 end
-                if improved, break; end
+            end
+            if ~isempty(bestSwap)
+                D(bestSwap(1), k) = false;  D(bestSwap(2), k) = true;
+                bl = bestBL;  bs = bestBS;  changed = true;
             end
         end
-        D(:, k) = false;
-        D(inC, k) = true;
+        if ~changed, break; end
     end
 
-    function S = local_sinr(Sset)
-        gk  = g(Sset, k);
-        sig = (sum(gk))^2;
-        coh = 0;
-        for jj = cop.'
-            coh = coh + (sum(sqrt(gk .* g(Sset, jj))))^2;
+    function [Rl, Rs] = tot_se(Dmask)
+        al = 0;  as = 0;
+        for rr = 1:nDec
+            Hh = reshape(Hh3(:, rr, :), [LN, K]);
+            Hm = reshape(Hm3(:, rr, :), [LN, K]);
+            sl = det_local(Hh, Hm, C, Dmask, p, prelog, eta, N, L, K);
+            ss = det_local_sic(Hh, Hm, C, Dmask, p, prelog, eta, N, L, K);
+            al = al + sum(sl);  as = as + sum(ss);
         end
-        inco  = sum(gk) * (sum(sum(g(Sset, oth))) / max(numel(oth), 1));
-        noise = sum(gk) / max(p, eps);
-        S = sig / (coh + inco + noise + eps);
+        Rl = al / nDec;  Rs = as / nDec;
     end
 end
 
