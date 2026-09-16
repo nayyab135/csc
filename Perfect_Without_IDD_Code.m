@@ -2471,6 +2471,121 @@ if sparse_study
     xlabel('SNR [dB]', 'FontSize', 12); ylabel('Desired-user post-MMSE SINR [dB]', 'FontSize', 12);
     title(sprintf('Collinear-user SINR: sparse array helps the near field, not the far field\n(N=%d, interferer \\Deltar=2m at the same angle)', Nsp), 'FontSize', 11);
     legend('Location', 'northwest', 'FontSize', 9);
+
+    % ========= FIGURE SP7: near/far LINK FRACTION vs sparsening ==============
+    %  Answers "is sparse relevant to THIS 300m deployment, and by how much?"
+    %  As the per-AP aperture grows with the sparsening factor s (equal-N mode),
+    %  d_Ray(s) = s^2 * d_Ray, so more user-AP links become near-field -- and the
+    %  near field is exactly where the Cross-AP list-SIC detector gains. This is
+    %  a MEASURED fraction on the real geometry, not an assumption.
+    ssw7   = 1:0.5:6;
+    nDrop7 = 300;
+    dRayS  = (ssw7.^2) * d_Ray;                    % d_Ray(s) = s^2 * d_Ray(baseline)
+    rmaxNF = min(0.9*d_Ray, squareLen/2);          % same radii as the main deployment
+    npair7 = floor(K/4);
+    rs7    = RandStream('mt19937ar', 'Seed', 11);
+    wsh    = squareLen * [-1 0 1];
+    allD7  = zeros(nDrop7, L*K);
+    for dd = 1:nDrop7
+        ap = (rand(rs7, L, 1) + 1j*rand(rs7, L, 1)) * squareLen;
+        ue = zeros(K, 1);  ui = 1;
+        for pr = 1:npair7
+            al = mod(pr-1, L) + 1;  ph = 2*pi*rand(rs7);
+            rn = 20 + (rmaxNF/2 - 20)*rand(rs7);
+            rf = rmaxNF/2 + (rmaxNF/2)*rand(rs7);
+            ue(ui) = ap(al) + rn*exp(1j*ph);  ue(ui+1) = ap(al) + rf*exp(1j*ph);  ui = ui + 2;
+        end
+        arr = 1;
+        while ui <= K
+            r = 20 + (rmaxNF - 20)*rand(rs7);  ph = 2*pi*rand(rs7);
+            ue(ui) = ap(arr) + r*exp(1j*ph);  ui = ui + 1;  arr = mod(arr, L) + 1;
+        end
+        c = 1;
+        for l = 1:L
+            for k = 1:K
+                dxy = inf;
+                for a = wsh
+                    for b = wsh
+                        dxy = min(dxy, abs((ap(l) + a + 1j*b) - ue(k)));
+                    end
+                end
+                allD7(dd, c) = sqrt(hDiff^2 + dxy^2);  c = c + 1;
+            end
+        end
+    end
+    nfFrac = zeros(size(ssw7));
+    for is = 1:numel(ssw7)
+        nfFrac(is) = 100 * mean(allD7(:) < dRayS(is));
+    end
+    figure('Name', 'SP7-NearFieldLinkFraction-vs-Sparsening', 'Position', [60 60 880 520]);
+    yyaxis left;  hold on; box on; grid on;
+    plot(ssw7, nfFrac, '-o', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 6);
+    ylabel('Near-field links [% of L\cdotK]', 'FontSize', 12);  ylim([0 100]);
+    yyaxis right;
+    plot(ssw7, dRayS, '--', 'Color', [0.4 0.4 0.4], 'LineWidth', 1.6);
+    ylabel('d_{Ray}(s) [m]', 'FontSize', 12);
+    xlabel('Sparsening factor  s  (spacing = s\cdot\lambda/2)', 'FontSize', 12);
+    title(sprintf('Near-field link fraction vs sparsening (%dx%dm, N=%d, %d drops)\nbaseline s=1: %.0f%% near-field  ->  s=4: %.0f%%', ...
+          squareLen, squareLen, N, nDrop7, nfFrac(1), interp1(ssw7, nfFrac, 4)), 'FontSize', 11);
+    for is = 1:numel(ssw7)
+        fprintf('[Sparse] s=%.1f: d_Ray=%4.0fm, near-field links=%2.0f%%\n', ssw7(is), dRayS(is), nfFrac(is));
+    end
+
+    % ========= FIGURE SP8: does CROSS-AP combining suppress the grating lobe? =
+    %  The open (and only genuinely novel) question -- single-array figures
+    %  cannot answer it. Geometry: AP#1 at the origin (array along x). The
+    %  desired user sits at AP#1 broadside in the near field; the interferer is
+    %  parked exactly on AP#1's GRATING angle (sin = 2/Qsp), where AP#1's sparse
+    %  array cannot null it. The other L-1 APs are spread over the scene and see
+    %  the interferer at ordinary angles. We compare the desired-user SINR at
+    %  AP#1 ALONE vs after cross-AP LSFD fusion, for the dense and sparse arrays.
+    %  Exact spherical-wave (NUSW) steering; the outcome is computed, not tuned.
+    steerAll = @(pos, dz) (abs(dz) ./ sqrt(abs(dz).^2 + pos.^2 - 2*pos*real(dz))) ...
+                          .* exp(-1j*2*pi*sqrt(abs(dz).^2 + pos.^2 - 2*pos*real(dz)) / lambda);
+    rdes = 25;  rint = 30;
+    zdes = 1j*rdes;                                 % broadside of AP#1, near field
+    sgl  = 2/Qsp;                                   % AP#1 grating-lobe sine (spacing Qsp*lambda/2)
+    zint = rint*sgl + 1j*rint*sqrt(1 - sgl^2);      % interferer on AP#1's grating angle
+    rs8  = RandStream('mt19937ar', 'Seed', 23);
+    zAP  = [0; (rand(rs8, L-1, 1)*2 - 1)*90 + 1j*(rand(rs8, L-1, 1)*140 - 20)];
+    snr8 = 0:2:30;
+    Sd1 = zeros(size(snr8)); Sdf = zeros(size(snr8));
+    Ss1 = zeros(size(snr8)); Ssf = zeros(size(snr8));
+    for ii = 1:numel(snr8)
+        pw = 10^(snr8(ii)/10);  pd = pw;  pint = pw;
+        for variant = 1:2
+            if variant == 1, pos = posD; else, pos = posU; end
+            gd = zeros(L, 1);  gi = zeros(L, 1);  nv = zeros(L, 1);  s1 = 0;
+            for l = 1:L
+                ad = steerAll(pos, zdes - zAP(l));
+                ai = steerAll(pos, zint - zAP(l));
+                v  = (pint*(ai*ai') + eye(Nsp)) \ ad;      % MMSE spatial filter (interf+noise)
+                gd(l) = v'*ad;  gi(l) = v'*ai;  nv(l) = real(v'*v);
+                if l == 1
+                    s1 = pd*abs(gd(1))^2 / (pint*abs(gi(1))^2 + nv(1));
+                end
+            end
+            sf = pd * real(gd' * ((pint*(gi*gi') + diag(nv)) \ gd));   % cross-AP LSFD fusion
+            if variant == 1
+                Sd1(ii) = 10*log10(s1);  Sdf(ii) = 10*log10(sf);
+            else
+                Ss1(ii) = 10*log10(s1);  Ssf(ii) = 10*log10(sf);
+            end
+        end
+    end
+    figure('Name', 'SP8-CrossAP-GratingLobe-Suppression', 'Position', [80 40 900 560]);
+    hold on; box on; grid on;
+    plot(snr8, Sd1, '--o', 'Color', cSpD, 'LineWidth', 1.7, 'MarkerSize', 5, 'DisplayName', 'Dense, AP#1 alone');
+    plot(snr8, Ss1, '--s', 'Color', cSpU, 'LineWidth', 1.7, 'MarkerSize', 5, 'DisplayName', 'Sparse, AP#1 alone (grating angle)');
+    plot(snr8, Sdf, '-o',  'Color', cSpD, 'LineWidth', 2.1, 'MarkerSize', 6, 'DisplayName', 'Dense, cross-AP fused');
+    plot(snr8, Ssf, '-d',  'Color', cSpN, 'LineWidth', 2.3, 'MarkerSize', 6, 'DisplayName', 'Sparse, cross-AP fused (test)');
+    xlabel('SNR [dB]', 'FontSize', 12);  ylabel('Desired-user SINR [dB]', 'FontSize', 12);
+    title(sprintf('Cross-AP fusion vs the per-AP grating lobe (L=%d, N=%d, spacing=%d\\times\\lambda/2)\ninterferer on AP#1 grating angle sin=%.2f', L, Nsp, Qsp, sgl), 'FontSize', 11);
+    legend('Location', 'northwest', 'FontSize', 9);
+    fprintf('[Sparse] SP8 @ %ddB: AP#1-alone dense=%.1f sparse=%.1f dB | fused dense=%.1f sparse=%.1f dB\n', ...
+            snr8(end), Sd1(end), Ss1(end), Sdf(end), Ssf(end));
+    fprintf('[Sparse] SP8: cross-AP fusion recovers %.1f dB of the sparse AP#1 grating-lobe loss at %ddB\n', ...
+            Ssf(end) - Ss1(end), snr8(end));
 end
 
 %% ====================================================================
