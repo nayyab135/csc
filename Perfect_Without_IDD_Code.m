@@ -2262,6 +2262,218 @@ title(sprintf('Detector complexity vs K  (L=%d, N=%d)', L, N), 'FontSize', 11);
 legend('Location', 'northwest', 'FontSize', 9);
 
 %% ====================================================================
+%  SPARSE-ARRAY STUDY  (grating lobes: far-field vs near-field, and the
+%  antenna-count / Rayleigh-distance trade-off)          [NEW, self-contained]
+%  --------------------------------------------------------------------
+%  Purpose (per the near-field XL-MIMO sparse-array literature):
+%   * A sparse ULA (element spacing > lambda/2) enlarges the aperture at a
+%     FIXED number of elements N, which sharpens resolution AND pushes the
+%     Rayleigh (near-field) distance out -- but in the FAR field it creates
+%     GRATING LOBES (ambiguous full-height replicas of the main beam).
+%   * Under the near-field NON-UNIFORM SPHERICAL-WAVE (NUSW) model the phase
+%     across the array is nonlinear, so the grating-lobe replicas no longer
+%     add up coherently: the near field SUPPRESSES the grating lobes, and the
+%     replica that survives is separated in RANGE (distance focusing), so it
+%     is resolvable. This is why sparse arrays are attractive in near-field
+%     XL-MIMO but harmful in the far field.
+%   * Because the Rayleigh distance depends on the APERTURE, not the element
+%     count, a sparse array reaches the SAME near-field distance with FEWER
+%     antennas -> lower per-AP complexity.
+%
+%  Physics is exact (array factors + NUSW steering), not a proxy. References:
+%   [S1] H. Wang et al., "Near-Field Beam Focusing Pattern and Grating Lobe
+%        Characterization for Modular XL-Array," arXiv:2305.05408, 2023.
+%   [S2] "Exploring the Advantages of Sparse Arrays in Near-Field XL-MIMO
+%        Systems: Beam Analysis and EDoF," arXiv:2501.09234, 2025.
+%   [S3] Liu et al., "A Tutorial on Near-Field XL-MIMO Towards 6G,"
+%        arXiv:2310.11044, 2023.
+%% ====================================================================
+sparse_study = true;
+if sparse_study
+    d0   = lambda / 2;                 % half-wavelength reference spacing
+    Nsp  = N;                          % elements per AP (same as the system)
+    Qsp  = 4;                          % sparsening factor: sparse spacing = Qsp*d0
+
+    % ---- geometries (element positions in metres, centred) ----
+    posD = ((0:Nsp-1).' - (Nsp-1)/2) * d0;         % dense ULA (lambda/2)
+    posU = ((0:Nsp-1).' - (Nsp-1)/2) * (Qsp*d0);   % uniform sparse (Qsp x aperture)
+    spanU = (Nsp-1) * Qsp;                         % same aperture, thinned grid
+    rs_sp = RandStream('mt19937ar', 'Seed', 7);    % local stream (keeps global RNG)
+    inner = sort(randperm(rs_sp, spanU-1, Nsp-2));
+    gid   = [0, inner, spanU];                     % keep both endpoints (fix aperture)
+    posN  = (gid.' - mean(gid)) * d0;              % non-uniform (type-II) sparse
+
+    aper = @(pp) max(pp) - min(pp);
+    dRayf = @(pp) 2 * aper(pp)^2 / lambda;
+    fprintf('\n[Sparse] aperture  dense=%.2fm  uniform-sparse=%.2fm  nonunif-sparse=%.2fm\n', ...
+            aper(posD), aper(posU), aper(posN));
+    fprintf('[Sparse] Rayleigh  dense=%.0fm  sparse=%.0fm  (2D^2/lambda)\n', ...
+            dRayf(posD), dRayf(posU));
+
+    % ---- steering models ----
+    ff  = @(pp, s)    exp(1j*2*pi/lambda * pp * s);                       % far-field (angle only)
+    nf  = @(pp, r, s) (r ./ sqrt(r^2 + pp.^2 - 2*r*pp*s)) ...            % near-field NUSW
+                      .* exp(-1j*2*pi*sqrt(r^2 + pp.^2 - 2*r*pp*s)/lambda);
+    gn  = @(a, b) abs(a'*b) / (norm(a)*norm(b));                          % normalized beam gain
+
+    r0sp  = min(0.15*d_Ray, 25);        % focal range, well inside the near field
+    s0sp  = 0;                          % focus at broadside (grating lobes symmetric)
+    angs  = linspace(-pi/2, pi/2, 1001);
+    sgr   = sin(angs);  angd = rad2deg(angs);
+
+    % ================= FIGURE SP1: geometries + FF beampattern =================
+    bpat = @(pp) arrayfun(@(s) gn(ff(pp, s), ff(pp, s0sp)), sgr);
+    bpD = 20*log10(max(bpat(posD), 1e-6));
+    bpU = 20*log10(max(bpat(posU), 1e-6));
+    bpN = 20*log10(max(bpat(posN), 1e-6));
+    cSpD = [0 0.45 0.74];  cSpU = [0.85 0.33 0.10];  cSpN = [0.20 0.20 0.60];
+
+    figure('Name', 'SP1-Geometry-and-FarFieldBeampattern', 'Position', [30 60 1180 520]);
+    subplot(1,2,1); hold on; box on; grid on;
+    stem(posD, 3*ones(size(posD)), 'o', 'Color', cSpD, 'MarkerFaceColor', cSpD, 'DisplayName', 'Dense ULA (\lambda/2)');
+    stem(posU, 2*ones(size(posU)), 's', 'Color', cSpU, 'MarkerFaceColor', cSpU, 'DisplayName', sprintf('Uniform sparse (\\times%d)', Qsp));
+    stem(posN, 1*ones(size(posN)), 'd', 'Color', cSpN, 'MarkerFaceColor', cSpN, 'DisplayName', 'Non-uniform sparse');
+    ylim([0 4]); set(gca, 'YTick', 1:3, 'YTickLabel', {'Non-unif', 'Uniform', 'Dense'});
+    xlabel('Element position [m]', 'FontSize', 12);
+    title(sprintf('Per-AP array geometries (N=%d)', Nsp), 'FontSize', 11);
+    legend('Location', 'southoutside', 'FontSize', 8, 'NumColumns', 3);
+    subplot(1,2,2); hold on; box on; grid on;
+    plot(angd, bpD, 'Color', cSpD, 'LineWidth', 1.6, 'DisplayName', 'Dense ULA');
+    plot(angd, bpU, 'Color', cSpU, 'LineWidth', 1.6, 'DisplayName', 'Uniform sparse (grating lobes)');
+    plot(angd, bpN, 'Color', cSpN, 'LineWidth', 1.6, 'DisplayName', 'Non-uniform sparse (suppressed)');
+    xlabel('Angle [deg]', 'FontSize', 12); ylabel('Normalized beampattern [dB]', 'FontSize', 12);
+    xlim([-90 90]); ylim([-30 1]);
+    title('Far-field beampattern: grating-lobe comparison', 'FontSize', 11);
+    legend('Location', 'south', 'FontSize', 8);
+
+    % ========= FIGURE SP2: SAME sparse array, FAR-field vs NEAR-field =========
+    %  This is the core figure: for the uniform sparse array the far-field
+    %  channel model shows full-height grating lobes, but the hybrid near-field
+    %  (NUSW) model suppresses them.
+    GffU = 20*log10(max(arrayfun(@(s) gn(ff(posU, s),      ff(posU, s0sp)),      sgr), 1e-6));
+    GnfU = 20*log10(max(arrayfun(@(s) gn(nf(posU, r0sp, s), nf(posU, r0sp, s0sp)), sgr), 1e-6));
+    GnfD = 20*log10(max(arrayfun(@(s) gn(nf(posD, r0sp, s), nf(posD, r0sp, s0sp)), sgr), 1e-6));
+
+    figure('Name', 'SP2-GratingLobe-FarField-vs-NearField', 'Position', [60 60 900 560]);
+    hold on; box on; grid on;
+    plot(angd, GffU, '-',  'Color', cSpU, 'LineWidth', 2.0, 'DisplayName', 'Sparse array, FAR-field model (grating lobes)');
+    plot(angd, GnfU, '-',  'Color', cSpN, 'LineWidth', 2.2, 'DisplayName', 'Sparse array, NEAR-field model (suppressed)');
+    plot(angd, GnfD, '--', 'Color', cSpD, 'LineWidth', 1.4, 'DisplayName', 'Dense ULA, near-field (reference)');
+    xlabel('Angle [deg]', 'FontSize', 12); ylabel('Normalized beam gain [dB]', 'FontSize', 12);
+    xlim([-90 90]); ylim([-30 1]);
+    title(sprintf('Grating lobes of the sparse array: far-field vs near-field\n(N=%d, spacing=%d\\times\\lambda/2, focus r_0=%.0fm)', Nsp, Qsp, r0sp), 'FontSize', 11);
+    legend('Location', 'south', 'FontSize', 9);
+
+    % report grating-lobe suppression (peak level outside the main lobe)
+    mainMask = abs(angd) > 8;                       % exclude the +-8 deg main lobe
+    glFF = max(GffU(mainMask));  glNF = max(GnfU(mainMask));
+    fprintf('[Sparse] peak grating-lobe level (sparse array): far-field %.1f dB, near-field %.1f dB  -> %.1f dB extra suppression\n', ...
+            glFF, glNF, glFF - glNF);
+
+    % ========= FIGURE SP3: 2D near-field focusing pattern (angle x range) =====
+    %  Near field resolves the grating-lobe replica in RANGE; far field cannot.
+    rgrid = linspace(3, min(1.2*d_Ray, 240), 220);
+    ss3   = linspace(-1, 1, 361);
+    aFocus = nf(posU, r0sp, s0sp);
+    Pnf = zeros(numel(rgrid), numel(ss3));
+    for ir = 1:numel(rgrid)
+        for is = 1:numel(ss3)
+            Pnf(ir, is) = gn(nf(posU, rgrid(ir), ss3(is)), aFocus);
+        end
+    end
+    PnfdB = 20*log10(max(Pnf, 1e-3));
+    aFocusFF = ff(posU, s0sp);
+    Pff1 = arrayfun(@(s) gn(ff(posU, s), aFocusFF), ss3);   % FF: range-independent
+    PffdB = repmat(20*log10(max(Pff1, 1e-3)), numel(rgrid), 1);
+
+    figure('Name', 'SP3-NearField-2D-Focusing', 'Position', [40 40 1200 520]);
+    subplot(1,2,1);
+    imagesc(ss3, rgrid, PffdB); set(gca, 'YDir', 'normal'); caxis([-20 0]);
+    xlabel('sin(\theta)', 'FontSize', 12); ylabel('Range r [m]', 'FontSize', 12);
+    title('Far-field model: grating lobes ambiguous at ALL ranges', 'FontSize', 11);
+    colorbar; hold on; plot(s0sp, r0sp, 'w+', 'MarkerSize', 10, 'LineWidth', 1.5);
+    subplot(1,2,2);
+    imagesc(ss3, rgrid, PnfdB); set(gca, 'YDir', 'normal'); caxis([-20 0]);
+    xlabel('sin(\theta)', 'FontSize', 12); ylabel('Range r [m]', 'FontSize', 12);
+    title(sprintf('Near-field model: replica resolved in range (focus \\times at r_0=%.0fm)', r0sp), 'FontSize', 11);
+    colorbar; hold on; plot(s0sp, r0sp, 'w+', 'MarkerSize', 10, 'LineWidth', 1.5);
+    sgtitle(sprintf('Near-field beam focusing of the sparse array (N=%d, spacing=%d\\times\\lambda/2)', Nsp, Qsp), 'FontSize', 12);
+
+    % ========= FIGURE SP4: grating-lobe level vs element spacing, FF vs NF ====
+    qsw = 1:0.25:Qsp;                               % spacing multiple of lambda/2
+    glFFv = zeros(size(qsw));  glNFv = zeros(size(qsw));
+    for iq = 1:numel(qsw)
+        pp = ((0:Nsp-1).' - (Nsp-1)/2) * (qsw(iq)*d0);
+        gff = 20*log10(max(arrayfun(@(s) gn(ff(pp, s),        ff(pp, s0sp)),        sgr), 1e-6));
+        gnf = 20*log10(max(arrayfun(@(s) gn(nf(pp, r0sp, s),  nf(pp, r0sp, s0sp)),  sgr), 1e-6));
+        glFFv(iq) = max(gff(mainMask));
+        glNFv(iq) = max(gnf(mainMask));
+    end
+    figure('Name', 'SP4-GratingLobeLevel-vs-Spacing', 'Position', [80 60 820 520]);
+    hold on; box on; grid on;
+    plot(qsw*0.5, glFFv, '-o', 'Color', cSpU, 'LineWidth', 1.9, 'MarkerSize', 6, 'DisplayName', 'Far-field model');
+    plot(qsw*0.5, glNFv, '-d', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 6, 'DisplayName', 'Near-field model (proposed)');
+    xlabel('Element spacing d / \lambda', 'FontSize', 12);
+    ylabel('Peak grating-lobe level [dB below main]', 'FontSize', 12);
+    title(sprintf('How much the near field suppresses grating lobes (N=%d)\nFF grating lobes climb toward 0 dB; NF keeps them down', Nsp), 'FontSize', 11);
+    legend('Location', 'northwest', 'FontSize', 9);
+
+    % ========= FIGURE SP5: Rayleigh distance & antenna reduction ==============
+    dRay_target = d_Ray;                            % the current N=64, lambda/2 system
+    Nsweep = 8:2:96;
+    dRay_half = 2*((Nsweep-1)*d0).^2/lambda;
+    dRay_sp   = 2*((Nsweep-1)*Qsp*d0).^2/lambda;
+    ssw   = 1:0.5:6;                                % sparsening factor
+    Nneed = 1 + sqrt(dRay_target*lambda/2) ./ (ssw*d0);   % antennas for the SAME d_Ray
+
+    figure('Name', 'SP5-RayleighDistance-and-AntennaReduction', 'Position', [40 40 1200 520]);
+    subplot(1,2,1); hold on; box on; grid on;
+    plot(Nsweep, dRay_half, '-o', 'Color', cSpD, 'LineWidth', 1.9, 'MarkerSize', 5, 'DisplayName', '\lambda/2 spacing (dense)');
+    plot(Nsweep, dRay_sp,   '-d', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 5, 'DisplayName', sprintf('%d\\times\\lambda/2 spacing (sparse)', Qsp));
+    yline(dRay_target, '--k', 'LineWidth', 1.3, 'DisplayName', sprintf('target d_{Ray}=%.0fm (N=%d, \\lambda/2)', dRay_target, N));
+    xlabel('Number of antennas N', 'FontSize', 12); ylabel('Rayleigh distance d_{Ray} [m]', 'FontSize', 12);
+    title('Near-field distance vs antenna count', 'FontSize', 11);
+    legend('Location', 'northwest', 'FontSize', 9);
+    subplot(1,2,2); hold on; box on; grid on;
+    plot(ssw, Nneed, '-o', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 6, 'DisplayName', 'Antennas for the same d_{Ray}');
+    plot(1, N, 'p', 'Color', cSpD, 'MarkerFaceColor', cSpD, 'MarkerSize', 12, 'DisplayName', sprintf('current system (N=%d)', N));
+    xlabel('Sparsening factor  s  (spacing = s\\cdot\\lambda/2)', 'FontSize', 12);
+    ylabel('Antennas N needed for the same d_{Ray}', 'FontSize', 12);
+    title(sprintf('Antenna reduction at fixed near-field distance\n(s=%d -> N\\approx%.0f, a %.0f%% reduction)', Qsp, interp1(ssw, Nneed, Qsp), 100*(1 - interp1(ssw, Nneed, Qsp)/N)), 'FontSize', 11);
+    legend('Location', 'northeast', 'FontSize', 9);
+    for jj = 2:numel(ssw)
+        fprintf('[Sparse] s=%.1f (spacing %.1f*lambda/2): N=%.0f antennas keep d_Ray=%.0fm  (was %d)\n', ...
+                ssw(jj), ssw(jj), round(Nneed(jj)), dRay_target, N);
+    end
+
+    % ========= FIGURE SP6: post-MMSE SINR {FF,NF} x {dense,sparse} ============
+    %  One AP must separate a desired user from ONE collinear interferer (same
+    %  angle, different range). Far field: identical steering -> unseparable.
+    %  Near field: spherical wavefront + larger sparse aperture -> separable.
+    sinth = 0.2;  r1c = r0sp;  r2c = r0sp + 2;
+    sinrdb = @(h1, h2, pw) 10*log10(real(pw * h1' * ((pw*(h2*h2') + eye(Nsp)) \ h1)));
+    snrSp = 0:2:30;
+    sFFd = zeros(size(snrSp)); sFFs = zeros(size(snrSp));
+    sNFd = zeros(size(snrSp)); sNFs = zeros(size(snrSp));
+    for ii = 1:numel(snrSp)
+        pw = 10^(snrSp(ii)/10);
+        sFFd(ii) = sinrdb(ff(posD, sinth),        ff(posD, sinth),        pw);
+        sFFs(ii) = sinrdb(ff(posU, sinth),        ff(posU, sinth),        pw);
+        sNFd(ii) = sinrdb(nf(posD, r1c, sinth),   nf(posD, r2c, sinth),   pw);
+        sNFs(ii) = sinrdb(nf(posU, r1c, sinth),   nf(posU, r2c, sinth),   pw);
+    end
+    figure('Name', 'SP6-SINR-FF-vs-NF-dense-vs-sparse', 'Position', [60 40 900 560]);
+    hold on; box on; grid on;
+    plot(snrSp, sFFd, '-o', 'Color', cSpD, 'LineWidth', 1.8, 'MarkerSize', 5, 'DisplayName', 'Far-field, dense ULA');
+    plot(snrSp, sFFs, '-s', 'Color', cSpU, 'LineWidth', 1.8, 'MarkerSize', 5, 'DisplayName', 'Far-field, sparse');
+    plot(snrSp, sNFd, '-^', 'Color', [0.20 0.55 0.20], 'LineWidth', 1.8, 'MarkerSize', 5, 'DisplayName', 'Near-field, dense ULA');
+    plot(snrSp, sNFs, '-d', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 6, 'DisplayName', 'Near-field, sparse (proposed)');
+    xlabel('SNR [dB]', 'FontSize', 12); ylabel('Desired-user post-MMSE SINR [dB]', 'FontSize', 12);
+    title(sprintf('Collinear-user SINR: sparse array helps the near field, not the far field\n(N=%d, interferer \\Deltar=2m at the same angle)', Nsp), 'FontSize', 11);
+    legend('Location', 'northwest', 'FontSize', 9);
+end
+
+%% ====================================================================
 function D = ir_cluster_refine_det(D_CN, Hh3, Hm3, C, gnorm, p, prelog, eta, N, L, K, nDec)
 % INFORMATION-RATE clustering by rate-improving local search seeded at the
 % channel-norm (CN) cluster, scored by the ACTUAL detector rate (Mashdour,
