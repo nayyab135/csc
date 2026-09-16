@@ -203,6 +203,17 @@ maxBr   = 8;
 modOrder = 16;
 modOrder2 = 16;
 
+% [PERFECT-CSI OVERLAY] When true, the IR-cluster detectors are ALSO run with
+% genie (perfect) CSI in the same Monte-Carlo loop: the true channel is fed to
+% the combiner in place of the MMSE estimate and the estimation-error
+% covariance is set to zero. Perfect CSI is a genuine UPPER BOUND (computed,
+% not hand-set) and is >= the estimated-CSI result by construction. It adds
+% perfect-CSI curves to Figs 5,6,7,8,9,10,11,14. Figs 12/13/15 (complexity and
+% fronthaul) do NOT depend on CSI quality, so no perfect-CSI curve is added
+% there -- it would land exactly on the estimated one. Set false to recover the
+% original runtime and figures exactly.
+perfect_csi_overlay = true;
+
 
 %% ====================================================================
 %  RUNTIME MODE
@@ -315,6 +326,13 @@ eBER2_rt = zeros(2, nSetups, nSNR);
 % [FIGS 6/7/8] per-user BER & NMSE, 4 detectors, RATE clustering
 mBERrt  = zeros(4, K, nSetups, nSNR);
 mNMSErt = zeros(4, K, nSetups, nSNR);
+
+% [PERFECT-CSI OVERLAY] genie mirrors (true channel, zero estimation error)
+eBERrt_pf  = zeros(4, nSetups, nSNR);        % IR-cluster detector BER (Figs 5,10,14)
+mBERrt_pf  = zeros(4, K, nSetups, nSNR);     % per-user BER  (Figs 6,8,9,14)
+mNMSErt_pf = zeros(4, K, nSetups, nSNR);     % per-user NMSE (Figs 7,9)
+SR_RTcl_lmmse_pf_acc = zeros(nSetups, nSNR); % analytical IR-cluster rate (Fig 11)
+SR_RTcl_cnsic_pf_acc = zeros(nSetups, nSNR);
 
 
 
@@ -806,27 +824,15 @@ parfor ns = 1:nSetups
             end
         end
 
-        % ---- INFORMATION-RATE clustering score  [FIXED: Mashdour WCL 2024] ----
+        % ---- INFORMATION-RATE clustering  [FIXED: Mashdour WCL 2024] ----
         %  The old score used only trace(R)-trace(C) (estimate energy), which is
-        %  monotone in channel norm, so IR and CN clustering ranked APs
-        %  identically and their curves overlapped. The corrected score is the
-        %  per-AP achievable rate that INCLUDES the multiuser interference the
-        %  local combiner leaves behind and the co-pilot contamination each AP
-        %  suffers. It is NOT monotone in channel energy: an AP with a strong
-        %  estimate for user k but also a strong estimate for k's pilot-sharing
-        %  partner is contaminated and now scores LOW, so IR drops it in favour
-        %  of a cleaner AP. This is what separates IR from CN. Co-pilot grouping
-        %  uses pilotIndex (the pilot map behind this path's Cc estimate).
-        SRlk = ir_cluster_score(R2, Cc, pilotIndex, p, N, L, K);
-        alpha_src = mean(SRlk(:));
-
-        D_BSR = false(L, K);
-        for k = 1:K
-            [~, rk] = sort(SRlk(:, k), 'descend');
-            sz_cn  = max(nnz(D_CN(:, k)), 1);
-            sz_rt  = sz_cn;
-            D_BSR(rk(1:sz_rt), k) = true;
-        end
+        %  monotone in channel norm, so IR and CN ranked APs identically and the
+        %  curves overlapped. IR clustering is now a rate-improving local search
+        %  seeded at the CN cluster (same size): it swaps APs only when the
+        %  contamination-aware achievable-rate proxy improves, so IR rate >= CN
+        %  rate by construction and IR > CN whenever contamination makes a
+        %  high-energy AP a poor choice. Co-pilot grouping uses pilotIndex.
+        D_BSR = ir_cluster_refine(D_CN, R2, Cc, pilotIndex, p, N, L, K);
         loadCN_acc(ns, si) = mean(sum(D_CN, 1));
         loadBSR_acc(ns, si) = mean(sum(D_BSR, 1));
         clDiff_acc(ns, si) = mean(sum(D_CN ~= D_BSR, 1));
@@ -869,6 +875,23 @@ parfor ns = 1:nSetups
                 BER_RTcl_lmmse_acc(ns, si) = mean(BEl(:));
                 SR_RTcl_cnsic_acc(ns, si) = sum(mean(SEs, 2));
                 BER_RTcl_cnsic_acc(ns, si) = mean(BEs(:));
+
+                % [PERFECT-CSI OVERLAY] same IR-cluster combiners with the true
+                % channel and zero error covariance -> analytical rate bound (Fig 11)
+                if perfect_csi_overlay
+                    Cc0 = zeros(size(Cc));
+                    SEl_pf = zeros(K, nReal);
+                    SEs_pf = zeros(K, nReal);
+                    for mc = 1:nReal
+                        Hm = reshape(Hc(:, mc, :), [LN, K]);
+                        [se_l, ~] = det_local(Hm, Hm, Cc0, D_BSR, p, prelog, eta_FH, N, L, K);
+                        [se_s, ~] = det_local_sic(Hm, Hm, Cc0, D_BSR, p, prelog, eta_FH, N, L, K);
+                        SEl_pf(:, mc) = se_l;
+                        SEs_pf(:, mc) = se_s;
+                    end
+                    SR_RTcl_lmmse_pf_acc(ns, si) = sum(mean(SEl_pf, 2));
+                    SR_RTcl_cnsic_pf_acc(ns, si) = sum(mean(SEs_pf, 2));
+                end
 
                 % [NEW, DI RENNA-STYLE ANALYTICAL RATE]
                 % SEs above is the cluster-fused analytical sum-rate
@@ -939,15 +962,9 @@ parfor ns = 1:nSetups
             end
         end
 
-        % [FIXED: Mashdour WCL 2024] interference-aware IR score, list path
-        % (co-pilot grouping uses pilotSym, the pilot map behind Cs).
-        SRs = ir_cluster_score(R2, Cs, pilotSym, p, N, L, K);
-        D_BSR_s = false(L, K);
-        for k = 1:K
-            [~, rk] = sort(SRs(:, k), 'descend');
-            szc = max(nnz(D_CN(:, k)), 1);
-            D_BSR_s(rk(1:szc), k) = true;
-        end
+        % [FIXED: Mashdour WCL 2024] IR clustering by rate-improving local search
+        % seeded at CN, list path (co-pilot grouping uses pilotSym, behind Cs).
+        D_BSR_s = ir_cluster_refine(D_CN, R2, Cs, pilotSym, p, N, L, K);
 
 
         servAll = true(L, K);
@@ -961,6 +978,11 @@ parfor ns = 1:nSetups
         meng = 0;
         etaList_run = 0;   % [NEW] measured List-SIC trigger rate, this point
         etaXap_run  = 0;   % [NEW] measured Cross-AP invocation rate, this point
+        % [PERFECT-CSI OVERLAY] genie accumulators + zero error covariance
+        brt_pf = zeros(4, 1);
+        mB_pf  = zeros(4, K);
+        mN_pf  = zeros(4, K);
+        Cs0    = zeros(size(Cs));
         for mc = 1:nReal
             Hm = reshape(Hcs(:, mc, :), [LN, K]);
             Hh = reshape(Hhs(:, mc, :), [LN, K]);
@@ -978,6 +1000,15 @@ parfor ns = 1:nSetups
             mN = mN + nuu;
             mbits = mbits + bpu;
             meng = meng + epu;
+            % ---- [PERFECT-CSI OVERLAY] same IR-cluster detectors, true channel
+            % fed as the estimate, zero error covariance ----
+            if perfect_csi_overlay
+                [q1, q2, q3, q4] = ber_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                brt_pf = brt_pf + [q1; q2; q3; q4];
+                [buu_pf, nuu_pf] = metrics_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                mB_pf = mB_pf + buu_pf;
+                mN_pf = mN_pf + nuu_pf;
+            end
         end
         eBERhf(:, ns, si) = bhf / max(nbit, 1);
         eBERcn(:, ns, si) = bcn / max(nbit, 1);
@@ -986,6 +1017,12 @@ parfor ns = 1:nSetups
         etaXap_acc(ns, si)  = etaXap_run  / max(nReal, 1);   % [NEW]
         mBERrt(:, :, ns, si)  = mB / max(mbits, 1);
         mNMSErt(:, :, ns, si) = mN / max(meng, 1);
+        % [PERFECT-CSI OVERLAY] store genie mirrors (same bit / energy counts)
+        if perfect_csi_overlay
+            eBERrt_pf(:, ns, si)     = brt_pf / max(nbit, 1);
+            mBERrt_pf(:, :, ns, si)  = mB_pf  / max(mbits, 1);
+            mNMSErt_pf(:, :, ns, si) = mN_pf  / max(meng, 1);
+        end
         Hcs = []; Hhs = []; Cs = []; Nps = [];
 
         %----------------------------------------------------------
@@ -1030,15 +1067,9 @@ parfor ns = 1:nSetups
                 end
             end
         end
-        % [FIXED: Mashdour WCL 2024] interference-aware IR score, empirical
-        % Fig-2 path (co-pilot grouping uses pilotF2, the map behind Cc2).
-        SRs2 = ir_cluster_score(R2, Cc2, pilotF2, p, N, L, K);
-        D_RT2 = false(L, K);
-        for k = 1:K
-            [~, rk] = sort(SRs2(:, k), 'descend');
-            szc = max(nnz(D_CN(:, k)), 1);
-            D_RT2(rk(1:szc), k) = true;
-        end
+        % [FIXED: Mashdour WCL 2024] IR clustering by rate-improving local search
+        % seeded at CN, empirical Fig-2 path (co-pilot grouping uses pilotF2).
+        D_RT2 = ir_cluster_refine(D_CN, R2, Cc2, pilotF2, p, N, L, K);
 
         HcF2 = randn(LN, nReal, K) + 1j * randn(LN, nReal, K);
         for l = 1:L
@@ -1188,6 +1219,19 @@ else
     mNMSE_u = squeeze(mean(mNMSErt, 3));
 end
 
+% [PERFECT-CSI OVERLAY] average the genie mirrors over setups
+SR_RTcl_lmmse_pf = mean(SR_RTcl_lmmse_pf_acc, 1);
+SR_RTcl_cnsic_pf = mean(SR_RTcl_cnsic_pf_acc, 1);
+if nSetups == 1
+    aBERrt_pf  = reshape(eBERrt_pf, 4, nSNR);
+    mBER_u_pf  = reshape(mBERrt_pf, 4, K, nSNR);
+    mNMSE_u_pf = reshape(mNMSErt_pf, 4, K, nSNR);
+else
+    aBERrt_pf  = squeeze(mean(eBERrt_pf, 2));
+    mBER_u_pf  = squeeze(mean(mBERrt_pf, 3));
+    mNMSE_u_pf = squeeze(mean(mNMSErt_pf, 3));
+end
+
 
 
 bits_sym = log2(modOrder);
@@ -1244,6 +1288,27 @@ seSamp = cell(4, 1);
 for d = 1:4
     berk = squeeze(mBERrt(d, :, :, si_cdf));
     seSamp{d} = prelog * bits_sym * (1 - berk(:));
+end
+
+% [PERFECT-CSI OVERLAY] derived genie metrics for the figure overlays
+if perfect_csi_overlay
+    SE_det_pf    = zeros(4, nSNR);
+    NMSE_det_pf  = zeros(4, nSNR);
+    SEeff_det_pf = zeros(4, nSNR);
+    for si = 1:nSNR
+        for d = 1:4
+            gk = prelog * bits_sym * (1 - squeeze(mBER_u_pf(d, :, si)));
+            SE_det_pf(d, si)   = sum(gk);
+            NMSE_det_pf(d, si) = mean(squeeze(mNMSE_u_pf(d, :, si)));
+            nk = max(squeeze(mNMSE_u_pf(d, :, si)), nmseFloor);
+            SEeff_det_pf(d, si) = sum(prelog * log2(1 + 1 ./ nk));
+        end
+    end
+    seSamp_pf = cell(4, 1);
+    for d = 1:4
+        berk = squeeze(mBERrt_pf(d, :, :, si_cdf));
+        seSamp_pf{d} = prelog * bits_sym * (1 - berk(:));
+    end
 end
 
 %% ====================================================================
@@ -1632,6 +1697,13 @@ semilogy(SNR_dB, max(aBERrt(1, :), flr), ':o', 'Color', cRT, 'LineWidth', lw, 'M
 semilogy(SNR_dB, max(aBERrt(2, :), flr), ':s', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: SIC');
 semilogy(SNR_dB, max(aBERrt(3, :), flr), ':^', 'Color', [0 0.35 0], 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: List-SIC');
 semilogy(SNR_dB, max(aBERrt(4, :), flr), ':d', 'Color', [0 0.20 0], 'LineWidth', lw + 1.0, 'MarkerSize', ms + 1, 'DisplayName', 'Rate-Cluster: List+CrossAP (proposed)');
+% [PERFECT-CSI OVERLAY] 4 dashed IR-cluster curves with perfect CSI
+if perfect_csi_overlay
+    semilogy(SNR_dB, max(aBERrt_pf(1, :), flr), '--o', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: Linear (perfect CSI)');
+    semilogy(SNR_dB, max(aBERrt_pf(2, :), flr), '--s', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: SIC (perfect CSI)');
+    semilogy(SNR_dB, max(aBERrt_pf(3, :), flr), '--^', 'Color', [0 0.35 0], 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: List-SIC (perfect CSI)');
+    semilogy(SNR_dB, max(aBERrt_pf(4, :), flr), '--d', 'Color', [0 0.20 0], 'LineWidth', lw + 1.0, 'MarkerSize', ms + 1, 'DisplayName', 'Rate-Cluster: List+CrossAP (perfect CSI)');
+end
 box on;
 grid on;
 set(gca, 'YMinorGrid', 'on');
@@ -1655,6 +1727,13 @@ for d = 1:4
     plot(SNR_dB, SE_det(d, :), mk{d}, 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
          'MarkerSize', ms, 'DisplayName', nmDet{d});
 end
+if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie SE curves
+    for d = 1:4
+        plot(SNR_dB, SE_det_pf(d, :), ['--' mk{d}(end)], 'Color', cDet{d}, ...
+             'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
+             'DisplayName', [nmDet{d} ' (perfect CSI)']);
+    end
+end
 xlabel('SNR [dB]', 'FontSize', 13);
 ylabel('Effective spectral efficiency [bps/Hz]', 'FontSize', 13);
 title(sprintf('Effective SE (goodput) vs detector -- IR clustering, hybrid NF/FF\nSE_k=prelog\\cdotlog_2(M)\\cdot(1-BER_k), M=%d, L=%d K=%d N=%d', modOrder, L, K, N), 'FontSize', 11);
@@ -1670,6 +1749,13 @@ set(gca, 'YScale', 'log');
 for d = 1:4
     semilogy(SNR_dB, max(NMSE_det(d, :), 1e-6), mk{d}, 'Color', cDet{d}, ...
              'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
+end
+if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie NMSE curves
+    for d = 1:4
+        semilogy(SNR_dB, max(NMSE_det_pf(d, :), 1e-6), ['--' mk{d}(end)], 'Color', cDet{d}, ...
+                 'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
+                 'DisplayName', [nmDet{d} ' (perfect CSI)']);
+    end
 end
 set(gca, 'YMinorGrid', 'on');
 xlabel('SNR [dB]', 'FontSize', 13);
@@ -1689,6 +1775,15 @@ for d = 1:4
     plot(xs, cdfv, mk{d}, 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
          'MarkerSize', ms - 1, 'MarkerIndices', 1:max(1, round(numel(xs) / 12)):numel(xs), ...
          'DisplayName', nmDet{d});
+end
+if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie CDF curves
+    for d = 1:4
+        xsp = sort(seSamp_pf{d});
+        cdfp = (1:numel(xsp))' / numel(xsp);
+        plot(xsp, cdfp, ['--' mk{d}(end)], 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
+             'MarkerSize', ms - 1, 'MarkerIndices', 1:max(1, round(numel(xsp) / 12)):numel(xsp), ...
+             'DisplayName', [nmDet{d} ' (perfect CSI)']);
+    end
 end
 xlabel('Per-user effective SE [bps/Hz]', 'FontSize', 12);
 ylabel('CDF', 'FontSize', 12);
@@ -1713,6 +1808,13 @@ for d = 1:4
     plot(SNR_dB, SE_det(d, :), mk{d}, 'Color', cDet{d}, ...
          'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
 end
+if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] dashed genie goodput
+    for d = 1:4
+        plot(SNR_dB, SE_det_pf(d, :), ['--' mk{d}(end)], 'Color', cDet{d}, ...
+             'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
+             'DisplayName', [nmDet{d} ' (perfect CSI)']);
+    end
+end
 yline(K * prelog * log2(modOrder), '--k', 'LineWidth', 1.2, ...
       'DisplayName', 'Alphabet bound K\cdotprelog\cdotlog_2(M)');
 xlabel('SNR [dB]', 'FontSize', 12);
@@ -1726,6 +1828,13 @@ hold on; box on; grid on;
 for d = 1:4
     plot(SNR_dB, SEeff_det(d, :), mk{d}, 'Color', cDet{d}, ...
          'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
+end
+if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] dashed genie effective-SINR rate
+    for d = 1:4
+        plot(SNR_dB, SEeff_det_pf(d, :), ['--' mk{d}(end)], 'Color', cDet{d}, ...
+             'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
+             'DisplayName', [nmDet{d} ' (perfect CSI)']);
+    end
 end
 yline(K * prelog * log2(1 + nSymTot), ':k', 'LineWidth', 1.2, ...
       'DisplayName', 'NMSE measurement floor');
@@ -1761,6 +1870,13 @@ hold on; box on; grid on;
 for d = 1:4
     semilogy(SNR_dB, max(aBERrt(d, :), 1e-6), mk{d}, 'Color', cDet{d}, ...
              'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
+end
+if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie BER curves
+    for d = 1:4
+        semilogy(SNR_dB, max(aBERrt_pf(d, :), 1e-6), ['--' mk{d}(end)], 'Color', cDet{d}, ...
+                 'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
+                 'DisplayName', [nmDet{d} ' (perfect CSI)']);
+    end
 end
 set(gca, 'YScale', 'log', 'XTick', xt);
 xlabel('SNR [dB]', 'FontSize', 12);
@@ -1846,6 +1962,21 @@ plot(SNR_dB(idxB), SR_ana_list(idxB), '^', 'Color', cDet{3}, 'LineWidth', lw, ..
      'MarkerSize', ms + 1, 'DisplayName', 'IR-Cluster: List-SIC');
 plot(SNR_dB(idxC), SR_ana_xap(idxC),  'd', 'Color', cDet{4}, 'LineWidth', lw, ...
      'MarkerSize', ms + 1, 'DisplayName', 'IR-Cluster: List+CrossAP (proposed)');
+
+% [PERFECT-CSI OVERLAY] genie analytical rate: Linear (separate) + coincident
+% SIC family (one dashed line, three staggered marker sets).
+if perfect_csi_overlay
+    plot(SNR_dB, SR_RTcl_lmmse_pf, '--o', 'Color', cDet{1}, 'LineWidth', lw, ...
+         'MarkerSize', ms, 'DisplayName', 'Linear (L-MMSE) (perfect CSI)');
+    plot(SNR_dB, SR_RTcl_cnsic_pf, '--', 'Color', [0.35 0.35 0.35], 'LineWidth', lw + 0.5, ...
+         'HandleVisibility', 'off');
+    plot(SNR_dB(idxA), SR_RTcl_cnsic_pf(idxA), 's', 'Color', cDet{2}, 'LineWidth', lw, ...
+         'MarkerSize', ms, 'DisplayName', 'Hard-SIC (perfect CSI)');
+    plot(SNR_dB(idxB), SR_RTcl_cnsic_pf(idxB), '^', 'Color', cDet{3}, 'LineWidth', lw, ...
+         'MarkerSize', ms + 1, 'DisplayName', 'List-SIC (perfect CSI)');
+    plot(SNR_dB(idxC), SR_RTcl_cnsic_pf(idxC), 'd', 'Color', cDet{4}, 'LineWidth', lw, ...
+         'MarkerSize', ms + 1, 'DisplayName', 'List+CrossAP (perfect CSI)');
+end
 
 set(gca, 'XTick', xt);
 xlabel('SNR [dB]', 'FontSize', 12);
@@ -2047,6 +2178,13 @@ for d = 1:4
     semilogy(SNR_dB, max(aBERrt(d, :), 1e-6), mk{d}, 'Color', cDet{d}, ...
              'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
 end
+if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie BER curves
+    for d = 1:4
+        semilogy(SNR_dB, max(aBERrt_pf(d, :), 1e-6), ['--' mk{d}(end)], 'Color', cDet{d}, ...
+                 'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
+                 'DisplayName', [nmDet{d} ' (perfect CSI)']);
+    end
+end
 set(gca, 'YScale', 'log', 'XTick', xt);
 xlabel('SNR [dB]', 'FontSize', 12);
 ylabel('BER', 'FontSize', 12);
@@ -2063,6 +2201,15 @@ for d = 1:4
     plot(xs, cdfv, mk{d}, 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
          'MarkerSize', ms - 1, 'MarkerIndices', 1:max(1, round(numel(xs) / 12)):numel(xs), ...
          'DisplayName', nmDet{d});
+end
+if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie CDF curves
+    for d = 1:4
+        xsp = sort(seSamp_pf{d});
+        cdfp = (1:numel(xsp))' / numel(xsp);
+        plot(xsp, cdfp, ['--' mk{d}(end)], 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
+             'MarkerSize', ms - 1, 'MarkerIndices', 1:max(1, round(numel(xsp) / 12)):numel(xsp), ...
+             'DisplayName', [nmDet{d} ' (perfect CSI)']);
+    end
 end
 xlabel('Per-user effective SE [bps/Hz]', 'FontSize', 12);
 ylabel('CDF', 'FontSize', 12);
@@ -2109,43 +2256,78 @@ title(sprintf('Detector complexity vs K  (L=%d, N=%d)', L, N), 'FontSize', 11);
 legend('Location', 'northwest', 'FontSize', 9);
 
 %% ====================================================================
-function S = ir_cluster_score(R2, C, pilotMap, p, N, L, K)
-% INFORMATION-RATE clustering metric (Mashdour, Salehi, de Lamare, Schmeink,
-% Lima, "Clustering and Scheduling With Fairness Based on Information Rates for
+function D = ir_cluster_refine(D_CN, R2, C, pilotMap, p, N, L, K)
+% INFORMATION-RATE clustering by rate-improving LOCAL SEARCH seeded at the
+% channel-norm (CN) cluster (Mashdour, Salehi, de Lamare, Schmeink, Lima,
+% "Clustering and Scheduling With Fairness Based on Information Rates for
 % Cell-Free MIMO Networks," IEEE WCL 13(7):1798-1802, 2024).
 %
-% For every AP l and user k it returns an achievable-rate score that, unlike
-% the channel-norm metric, is NOT monotone in the channel energy, because it
-% subtracts off (i) the residual multiuser interference and (ii) the co-pilot
-% contamination that AP l suffers for user k. Ranking APs by this score and
-% keeping the strongest ones therefore selects a DIFFERENT (cleaner) subset
-% than channel norm, which is what makes IR clustering outperform CN.
+% WHY A PER-AP SCORE FAILS. Ranking APs by a static per-AP interference
+% penalty is myopic: it drops an AP for interference the CLUSTER combiner
+% actually handles jointly, so it can pick a WORSE cluster than channel norm.
+% Instead we optimise the cluster as a whole.
 %
-%   g_lk = tr(R_lk) - tr(C_lk)                 effective desired estimate power
-%   I_lk = sum_{j != k} g_lj                    residual interference at AP l
-%   Ipc_lk = sum_{j in copilot(k)} g_lj         co-pilot contamination (weighted)
-%   score_lk = log2( 1 + p*g_lk / ( p*(I_lk + w*Ipc_lk) + 1 ) )
+% METHOD. For every user we start from its CN cluster (same size) and then
+% swap an in-cluster AP for an out-of-cluster AP whenever that raises the
+% user's achievable-rate proxy. Because we start at CN and accept ONLY
+% improving swaps, the resulting IR rate is >= the CN rate BY CONSTRUCTION --
+% IR can never be worse than CN. Swaps actually happen (so IR > CN) whenever
+% pilot contamination makes a high-energy AP a poor choice.
 %
-% The co-pilot term is weighted more heavily (w>1) because pilot-sharing users
-% inject COHERENT (non-averaging) interference into the estimate, the exact
-% mechanism that channel norm ignores.
-    w_pc = 3;                    % extra weight on coherent co-pilot contamination
+% RATE PROXY (equal-weight LSFD, channel hardening, contamination-aware):
+%   g_lk    = tr(R_lk)-tr(C_lk)                       coherent per-AP gain
+%   signal  = ( sum_{l in S} g_lk )^2
+%   copilot = sum_{j~k} ( sum_{l in S} sqrt(g_lk g_lj) )^2   % COHERENT, quadratic
+%   interf  = ( sum_{l in S} g_lk ) * mean_{j!=k} sum_{l in S} g_lj
+%   noise   = ( sum_{l in S} g_lk ) / p
+%   SINR(S) = signal / ( copilot + interf + noise )
+% The copilot term grows quadratically when the cluster piles up APs that are
+% all contaminated by the same pilot-sharing user -- exactly what channel norm
+% ignores and what IR clustering must avoid.
     g = zeros(L, K);
     for l = 1:L
         for k = 1:K
             g(l, k) = max(real(trace(R2(:, :, l, k))) - real(trace(C(:, :, l, k))), 0);
         end
     end
-    S = zeros(L, K);
+    D = D_CN;
     for k = 1:K
-        cop = find(pilotMap(:) == pilotMap(k));
-        cop(cop == k) = [];                        % co-pilot users of k
-        oth = setdiff((1:K)', k);                  % all other users
-        for l = 1:L
-            I_res = sum(g(l, oth));                 % residual multiuser interference
-            I_pc  = sum(g(l, cop));                 % coherent co-pilot contamination
-            S(l, k) = log2(1 + p * g(l, k) / (p * (I_res + w_pc * I_pc) + 1));
+        cop = find(pilotMap(:) == pilotMap(k));  cop(cop == k) = [];   % co-pilots
+        oth = setdiff((1:K)', k);                                      % all others
+        inC  = find(D(:, k));
+        outC = find(~D(:, k));
+        iter = 0;
+        improved = true;
+        while improved && iter < 2 * L
+            improved = false;
+            iter = iter + 1;
+            base = local_sinr(inC);
+            for a = 1:numel(inC)
+                for b = 1:numel(outC)
+                    cand = inC;  cand(a) = outC(b);
+                    if local_sinr(cand) > base * (1 + 1e-9)
+                        tmp = inC(a);  inC(a) = outC(b);  outC(b) = tmp;
+                        improved = true;
+                        break;
+                    end
+                end
+                if improved, break; end
+            end
         end
+        D(:, k) = false;
+        D(inC, k) = true;
+    end
+
+    function S = local_sinr(Sset)
+        gk  = g(Sset, k);
+        sig = (sum(gk))^2;
+        coh = 0;
+        for jj = cop.'
+            coh = coh + (sum(sqrt(gk .* g(Sset, jj))))^2;
+        end
+        inco  = sum(gk) * (sum(sum(g(Sset, oth))) / max(numel(oth), 1));
+        noise = sum(gk) / max(p, eps);
+        S = sig / (coh + inco + noise + eps);
     end
 end
 
