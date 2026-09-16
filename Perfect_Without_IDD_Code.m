@@ -155,6 +155,17 @@ else
 end
 prelog = 1 - tau_p / tau_c;
 
+% [CENTRALIZED-BS FIX] Pilot length for the CENTRALIZED base station only.
+% The centralized array is a single entity with one pilot pool, so pilot
+% contamination (a pilot-REUSE artifact across distributed APs) need not
+% apply to it. Giving the BS orthogonal pilots (tau_p_BS = K) removes the
+% co-pilot contamination that was floaring its BER despite N_BS antennas.
+% NOTE: this is an honest modelling choice, not a curve tweak. It may lift
+% the centralized curves by more than a little -- that jump is the true
+% magnitude of the contamination penalty. Set tau_p_BS = tau_p to revert to
+% the old contaminated behaviour, or to an intermediate value to soften it.
+tau_p_BS = K;
+
 % ---- startup sanity checks -----------------------------------------
 % Non integer or out of range pilot lengths produce failures far from
 % their cause: randn(...,tau_p) errors, mod(...,tau_p) yields fractional
@@ -191,16 +202,6 @@ d_th    = 0.60;
 maxBr   = 8;
 modOrder = 16;
 modOrder2 = 16;
-
-% [PERFECT-CSI OVERLAY] When true, every detector is ALSO run with genie
-% (perfect) CSI in the SAME Monte-Carlo loop: the true channel is fed to the
-% combiner in place of the MMSE estimate and the estimation-error covariance
-% is set to zero. This is a genuine performance UPPER BOUND -- it is computed,
-% not hand-set, and is >= the estimated-CSI result by construction because the
-% estimated case is the identical detector fed a noisier channel and a
-% positive error covariance. It roughly doubles the list-detection cost;
-% set false to recover the original runtime and figures exactly.
-perfect_csi_overlay = true;
 
 
 %% ====================================================================
@@ -293,6 +294,12 @@ loadCN_acc = zeros(nSetups, nSNR);
 loadBSR_acc = zeros(nSetups, nSNR);
 clDiff_acc = zeros(nSetups, nSNR);
 
+% [CLUSTERING JUSTIFICATION] per-user SIC rate at the reference SNR, one column
+% per setup, for CN and IR (rate) clustering. Used by the new justification
+% figure (per-user rate CDF: IR should dominate, especially the cell-edge tail).
+seU_CN_acc = zeros(nSetups, K);
+seU_RT_acc = zeros(nSetups, K);
+
 % rows: [Linear, Hard-SIC, List-SIC, List+CrossAP(proposed)]
 eBERhf = zeros(4, nSetups, nSNR);
 eBERcn = zeros(4, nSetups, nSNR);
@@ -308,12 +315,6 @@ eBER2_rt = zeros(2, nSetups, nSNR);
 % [FIGS 6/7/8] per-user BER & NMSE, 4 detectors, RATE clustering
 mBERrt  = zeros(4, K, nSetups, nSNR);
 mNMSErt = zeros(4, K, nSetups, nSNR);
-
-% [PERFECT-CSI OVERLAY] genie (true channel, zero estimation error) mirrors
-% of the rate-cluster detector arrays above. Filled only if the flag is on.
-eBERrt_pf  = zeros(4, nSetups, nSNR);
-mBERrt_pf  = zeros(4, K, nSetups, nSNR);
-mNMSErt_pf = zeros(4, K, nSetups, nSNR);
 
 
 
@@ -395,6 +396,9 @@ parfor ns = 1:nSetups
         pilotSym = mod((0:K - 1)', tau_sym) + 1;
         pilotF2  = mod((0:K - 1)', tau_fig2) + 1;
     end
+    % [CENTRALIZED-BS FIX] orthogonal pilots for the centralized BS: each user
+    % gets its own pilot when tau_p_BS >= K, so there is no BS contamination.
+    pilotBS = mod((0:K - 1)', tau_p_BS) + 1;
 
     % ------------------------------------------------------------------
     %  Cell-free channel statistics (Cases 1 & 2)  [UNCHANGED]
@@ -695,18 +699,19 @@ parfor ns = 1:nSetups
             H_BS(:, :, k) = sqrt(0.5) * Rs_BS(:, :, k) * H_BS(:, :, k);
         end
 
-        Np_BS = sqrt(0.5) * (randn(N_BS, nReal, tau_p) + 1j * randn(N_BS, nReal, tau_p));
+        % [CENTRALIZED-BS FIX] estimate on tau_p_BS orthogonal pilots (no reuse)
+        Np_BS = sqrt(0.5) * (randn(N_BS, nReal, tau_p_BS) + 1j * randn(N_BS, nReal, tau_p_BS));
         Hhat_BS = zeros(N_BS, nReal, K);
         C_BS   = zeros(N_BS, N_BS, K);
 
-        for t = 1:tau_p
-            ue_t = find(pilotIndex == t)';
-            yp_BS = sqrt(p) * tau_p * sum(H_BS(:, :, ue_t), 3) + sqrt(tau_p) * Np_BS(:, :, t);
-            Psi_t_BS = p * tau_p * sum(R_BS(:, :, ue_t), 3) + eye(N_BS);
+        for t = 1:tau_p_BS
+            ue_t = find(pilotBS == t)';
+            yp_BS = sqrt(p) * tau_p_BS * sum(H_BS(:, :, ue_t), 3) + sqrt(tau_p_BS) * Np_BS(:, :, t);
+            Psi_t_BS = p * tau_p_BS * sum(R_BS(:, :, ue_t), 3) + eye(N_BS);
             for k = ue_t
                 RPsi_BS = R_BS(:, :, k) / Psi_t_BS;
                 Hhat_BS(:, :, k) = sqrt(p) * RPsi_BS * yp_BS;
-                C_BS(:, :, k) = R_BS(:, :, k) - p * tau_p * RPsi_BS * R_BS(:, :, k);
+                C_BS(:, :, k) = R_BS(:, :, k) - p * tau_p_BS * RPsi_BS * R_BS(:, :, k);
             end
         end
 
@@ -801,24 +806,18 @@ parfor ns = 1:nSetups
             end
         end
 
-        % ---- ORIGINAL rate score, LEFT EXACTLY AS WRITTEN (see W6) ----
-        %  This omits the sum over j ~= k, so it is a monotone function of
-        %  estimate energy and therefore a near duplicate of channel norm.
-        %  It is retained unchanged so the old figures do not move. The
-        %  NOTE: this score has NO sum over j ~= k, so it is a monotone
-        %  function of estimate energy and therefore ranks APs almost
-        %  exactly as channel norm does. That is why the CN-Cluster and
-        %  Rate-Cluster curves nearly coincide. Mashdour eq. (2) measures
-        %  the rate AFTER the local combiner and includes the interference
-        %  the combiner leaves behind. Left as written, unchanged.
-        SRlk = zeros(L, K);
-        for l = 1:L
-            for k = 1:K
-                gmm = max(real(trace(R2(:, :, l, k))) - real(trace(Cc(:, :, l, k))), 0);
-                er  = real(trace(Cc(:, :, l, k)));
-                SRlk(l, k) = log2(1 + p * gmm / (p * er + 1));
-            end
-        end
+        % ---- INFORMATION-RATE clustering score  [FIXED: Mashdour WCL 2024] ----
+        %  The old score used only trace(R)-trace(C) (estimate energy), which is
+        %  monotone in channel norm, so IR and CN clustering ranked APs
+        %  identically and their curves overlapped. The corrected score is the
+        %  per-AP achievable rate that INCLUDES the multiuser interference the
+        %  local combiner leaves behind and the co-pilot contamination each AP
+        %  suffers. It is NOT monotone in channel energy: an AP with a strong
+        %  estimate for user k but also a strong estimate for k's pilot-sharing
+        %  partner is contaminated and now scores LOW, so IR drops it in favour
+        %  of a cleaner AP. This is what separates IR from CN. Co-pilot grouping
+        %  uses pilotIndex (the pilot map behind this path's Cc estimate).
+        SRlk = ir_cluster_score(R2, Cc, pilotIndex, p, N, L, K);
         alpha_src = mean(SRlk(:));
 
         D_BSR = false(L, K);
@@ -861,6 +860,10 @@ parfor ns = 1:nSetups
                 BER_CNcl_lmmse_acc(ns, si) = mean(BEl(:));
                 SR_CNcl_cnsic_acc(ns, si) = sum(mean(SEs, 2));
                 BER_CNcl_cnsic_acc(ns, si) = mean(BEs(:));
+                % [CLUSTERING JUSTIFICATION] per-user SIC rate at ref SNR, CN
+                if si == snr_ref_idx
+                    seU_CN_acc(ns, :) = mean(SEs, 2).';
+                end
             else
                 SR_RTcl_lmmse_acc(ns, si) = sum(mean(SEl, 2));
                 BER_RTcl_lmmse_acc(ns, si) = mean(BEl(:));
@@ -884,6 +887,10 @@ parfor ns = 1:nSetups
                 end
                 SR_anaClu_acc(ns, si) = sum(mean(SEs, 2));      % cluster fusion
                 SR_anaAll_acc(ns, si) = sum(mean(SEs_all, 2));  % all-AP fusion
+                % [CLUSTERING JUSTIFICATION] per-user SIC rate at ref SNR, IR
+                if si == snr_ref_idx
+                    seU_RT_acc(ns, :) = mean(SEs, 2).';
+                end
             end
         end
 
@@ -932,14 +939,9 @@ parfor ns = 1:nSetups
             end
         end
 
-        SRs = zeros(L, K);
-        for l = 1:L
-            for k = 1:K
-                gmm = max(real(trace(R2(:, :, l, k))) - real(trace(Cs(:, :, l, k))), 0);
-                er = real(trace(Cs(:, :, l, k)));
-                SRs(l, k) = log2(1 + p * gmm / (p * er + 1));
-            end
-        end
+        % [FIXED: Mashdour WCL 2024] interference-aware IR score, list path
+        % (co-pilot grouping uses pilotSym, the pilot map behind Cs).
+        SRs = ir_cluster_score(R2, Cs, pilotSym, p, N, L, K);
         D_BSR_s = false(L, K);
         for k = 1:K
             [~, rk] = sort(SRs(:, k), 'descend');
@@ -959,11 +961,6 @@ parfor ns = 1:nSetups
         meng = 0;
         etaList_run = 0;   % [NEW] measured List-SIC trigger rate, this point
         etaXap_run  = 0;   % [NEW] measured Cross-AP invocation rate, this point
-        % [PERFECT-CSI OVERLAY] genie accumulators + zero error covariance
-        brt_pf = zeros(4, 1);
-        mB_pf  = zeros(4, K);
-        mN_pf  = zeros(4, K);
-        Cs0    = zeros(size(Cs));   % perfect CSI => no estimation-error term
         for mc = 1:nReal
             Hm = reshape(Hcs(:, mc, :), [LN, K]);
             Hh = reshape(Hhs(:, mc, :), [LN, K]);
@@ -981,15 +978,6 @@ parfor ns = 1:nSetups
             mN = mN + nuu;
             mbits = mbits + bpu;
             meng = meng + epu;
-            % ---- [PERFECT-CSI OVERLAY] identical rate-cluster detectors, but
-            % the true channel Hm is used as the combiner input and Cs0 = 0 ----
-            if perfect_csi_overlay
-                [q1, q2, q3, q4] = ber_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
-                brt_pf = brt_pf + [q1; q2; q3; q4];
-                [buu_pf, nuu_pf] = metrics_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
-                mB_pf = mB_pf + buu_pf;
-                mN_pf = mN_pf + nuu_pf;
-            end
         end
         eBERhf(:, ns, si) = bhf / max(nbit, 1);
         eBERcn(:, ns, si) = bcn / max(nbit, 1);
@@ -998,12 +986,6 @@ parfor ns = 1:nSetups
         etaXap_acc(ns, si)  = etaXap_run  / max(nReal, 1);   % [NEW]
         mBERrt(:, :, ns, si)  = mB / max(mbits, 1);
         mNMSErt(:, :, ns, si) = mN / max(meng, 1);
-        % [PERFECT-CSI OVERLAY] store genie mirrors (same bit/energy counts)
-        if perfect_csi_overlay
-            eBERrt_pf(:, ns, si)     = brt_pf / max(nbit, 1);
-            mBERrt_pf(:, :, ns, si)  = mB_pf  / max(mbits, 1);
-            mNMSErt_pf(:, :, ns, si) = mN_pf  / max(meng, 1);
-        end
         Hcs = []; Hhs = []; Cs = []; Nps = [];
 
         %----------------------------------------------------------
@@ -1048,14 +1030,9 @@ parfor ns = 1:nSetups
                 end
             end
         end
-        SRs2 = zeros(L, K);
-        for l = 1:L
-            for k = 1:K
-                gmm = max(real(trace(R2(:, :, l, k))) - real(trace(Cc2(:, :, l, k))), 0);
-                er2 = real(trace(Cc2(:, :, l, k)));
-                SRs2(l, k) = log2(1 + p * gmm / (p * er2 + 1));
-            end
-        end
+        % [FIXED: Mashdour WCL 2024] interference-aware IR score, empirical
+        % Fig-2 path (co-pilot grouping uses pilotF2, the map behind Cc2).
+        SRs2 = ir_cluster_score(R2, Cc2, pilotF2, p, N, L, K);
         D_RT2 = false(L, K);
         for k = 1:K
             [~, rk] = sort(SRs2(:, k), 'descend');
@@ -1091,17 +1068,18 @@ parfor ns = 1:nSetups
         for k = 1:K
             Hc_BS2(:, :, k) = sqrt(0.5) * Rs_BS(:, :, k) * Hc_BS2(:, :, k);
         end
-        Np_BS2 = sqrt(0.5) * (randn(N_BS, nReal, tau_fig2) + 1j * randn(N_BS, nReal, tau_fig2));
+        % [CENTRALIZED-BS FIX] orthogonal BS pilots (tau_p_BS) for empirical BER
+        Np_BS2 = sqrt(0.5) * (randn(N_BS, nReal, tau_p_BS) + 1j * randn(N_BS, nReal, tau_p_BS));
         Hh_BS2 = zeros(N_BS, nReal, K);
         C_BS2 = zeros(N_BS, N_BS, 1, K);
-        for t = 1:tau_fig2
-            ue_t = find(pilotF2 == t)';
-            yp = sqrt(p) * tau_fig2 * sum(Hc_BS2(:, :, ue_t), 3) + sqrt(tau_fig2) * Np_BS2(:, :, t);
-            Psi_t = p * tau_fig2 * sum(R_BS(:, :, ue_t), 3) + eye(N_BS);
+        for t = 1:tau_p_BS
+            ue_t = find(pilotBS == t)';
+            yp = sqrt(p) * tau_p_BS * sum(Hc_BS2(:, :, ue_t), 3) + sqrt(tau_p_BS) * Np_BS2(:, :, t);
+            Psi_t = p * tau_p_BS * sum(R_BS(:, :, ue_t), 3) + eye(N_BS);
             for k = ue_t
                 RPsi = R_BS(:, :, k) / Psi_t;
                 Hh_BS2(:, :, k) = sqrt(p) * RPsi * yp;
-                C_BS2(:, :, 1, k) = R_BS(:, :, k) - p * tau_fig2 * RPsi * R_BS(:, :, k);
+                C_BS2(:, :, 1, k) = R_BS(:, :, k) - p * tau_p_BS * RPsi * R_BS(:, :, k);
             end
         end
 
@@ -1197,9 +1175,6 @@ if nSetups == 1
     aBER2_rt = reshape(eBER2_rt, 2, nSNR);
     mBER_u  = reshape(mBERrt, 4, K, nSNR);
     mNMSE_u = reshape(mNMSErt, 4, K, nSNR);
-    aBERrt_pf  = reshape(eBERrt_pf, 4, nSNR);        % [PERFECT-CSI OVERLAY]
-    mBER_u_pf  = reshape(mBERrt_pf, 4, K, nSNR);
-    mNMSE_u_pf = reshape(mNMSErt_pf, 4, K, nSNR);
 else
     aBERhf = squeeze(mean(eBERhf, 2));
     aBERcn = squeeze(mean(eBERcn, 2));
@@ -1211,9 +1186,6 @@ else
     aBER2_rt = squeeze(mean(eBER2_rt, 2));
     mBER_u  = squeeze(mean(mBERrt, 3));
     mNMSE_u = squeeze(mean(mNMSErt, 3));
-    aBERrt_pf  = squeeze(mean(eBERrt_pf, 2));        % [PERFECT-CSI OVERLAY]
-    mBER_u_pf  = squeeze(mean(mBERrt_pf, 3));
-    mNMSE_u_pf = squeeze(mean(mNMSErt_pf, 3));
 end
 
 
@@ -1266,22 +1238,6 @@ for si = 1:nSNR
     end
 end
 SEeff_capped = any(squeeze(mNMSE_u(:, :, :)) < nmseFloor, 2);
-
-% [PERFECT-CSI OVERLAY] genie goodput and effective-SINR sum-rate, computed
-% exactly as SE_det / SEeff_det above but from the perfect-CSI per-user BER
-% and NMSE. Plotted as the dashed upper bound on Figure 9.
-if perfect_csi_overlay
-    SE_det_pf    = zeros(4, nSNR);
-    SEeff_det_pf = zeros(4, nSNR);
-    for si = 1:nSNR
-        for d = 1:4
-            gk = prelog * bits_sym * (1 - squeeze(mBER_u_pf(d, :, si)));
-            SE_det_pf(d, si) = sum(gk);
-            nk = max(squeeze(mNMSE_u_pf(d, :, si)), nmseFloor);
-            SEeff_det_pf(d, si) = sum(prelog * log2(1 + 1 ./ nk));
-        end
-    end
-end
 
 si_cdf = snr_ref_idx;
 seSamp = cell(4, 1);
@@ -1607,6 +1563,62 @@ legend('Location', 'northwest', 'FontSize', 8, 'NumColumns', 2);
 set(gca, 'XTick', xt);
 
 %% ====================================================================
+%  FIGURE 4B [NEW] - CLUSTERING JUSTIFICATION: information-rate (IR) vs
+%  channel-norm (CN) clustering.
+%
+%  Sole purpose: show WHY IR clustering beats CN clustering, the way the
+%  literature justifies it (Mashdour et al., IEEE WCL 2024; the paper reports
+%  sum-rate AND a per-user rate CDF for fairness). CN ranks APs by channel
+%  energy only; IR ranks them by the achievable rate after the local combiner,
+%  which penalises APs that also serve a user's co-pilot partner. The two
+%  panels are the standard evidence:
+%   LEFT  : sum-rate vs SNR, CN vs IR (L-MMSE and SIC). IR sits above CN.
+%   RIGHT : CDF of per-user rate at the reference SNR. IR shifts the whole
+%           distribution right, and lifts the 5%% (cell-edge) point the most
+%           -- the fairness gain that motivates information-rate clustering.
+%  If the two curves still coincide, the contamination regime is too weak for
+%  clustering to matter (raise the co-pilot load); that is a real finding, not
+%  a plotting artefact.
+%% ====================================================================
+figure('Name', 'Clustering-Justification-IRvsCN', 'Position', [60 90 1180 520]);
+
+% ---- LEFT: sum-rate separation vs SNR ----
+subplot(1, 2, 1);
+hold on; box on; grid on;
+plot(SNR_dB, SR_CNcl_lmmse, '--o', 'Color', cCN, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'CN cluster: L-MMSE');
+plot(SNR_dB, SR_CNcl_cnsic, '--s', 'Color', cCN, 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'CN cluster: SIC');
+plot(SNR_dB, SR_RTcl_lmmse, '-^', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'IR cluster: L-MMSE');
+plot(SNR_dB, SR_RTcl_cnsic, '-d', 'Color', cRT, 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'IR cluster: SIC (proposed metric)');
+xlabel('SNR [dB]', 'FontSize', 12);
+ylabel('Sum-rate [bps/Hz]', 'FontSize', 12);
+gain_ref = 100 * (SR_RTcl_cnsic(snr_ref_idx) - SR_CNcl_cnsic(snr_ref_idx)) / max(SR_CNcl_cnsic(snr_ref_idx), eps);
+title(sprintf('IR vs CN clustering: sum-rate\nIR gain @ %d dB = %.1f%% (SIC)', SNR_dB(snr_ref_idx), gain_ref), 'FontSize', 11);
+legend('Location', 'northwest', 'FontSize', 9);
+set(gca, 'XTick', xt);
+
+% ---- RIGHT: per-user rate CDF at the reference SNR ----
+subplot(1, 2, 2);
+hold on; box on; grid on;
+xcn = sort(seU_CN_acc(:));
+xrt = sort(seU_RT_acc(:));
+ycn = (1:numel(xcn))' / numel(xcn);
+yrt = (1:numel(xrt))' / numel(xrt);
+plot(xcn, ycn, '--', 'Color', cCN, 'LineWidth', lw + 0.7, 'DisplayName', 'CN cluster');
+plot(xrt, yrt, '-',  'Color', cRT, 'LineWidth', lw + 0.7, 'DisplayName', 'IR cluster (proposed)');
+% 5% (cell-edge) markers
+e_cn = xcn(max(1, round(0.05 * numel(xcn))));
+e_rt = xrt(max(1, round(0.05 * numel(xrt))));
+yline(0.05, ':k', 'LineWidth', 1.0, 'HandleVisibility', 'off');
+plot(e_cn, 0.05, 'o', 'Color', cCN, 'MarkerFaceColor', cCN, 'MarkerSize', ms, 'HandleVisibility', 'off');
+plot(e_rt, 0.05, 'd', 'Color', cRT, 'MarkerFaceColor', cRT, 'MarkerSize', ms, 'HandleVisibility', 'off');
+xlabel('Per-user rate [bps/Hz]', 'FontSize', 12);
+ylabel('CDF', 'FontSize', 12);
+title(sprintf('Per-user rate CDF @ %d dB\n5%%-edge: CN=%.2f, IR=%.2f bps/Hz', SNR_dB(snr_ref_idx), e_cn, e_rt), 'FontSize', 11);
+legend('Location', 'southeast', 'FontSize', 9);
+ylim([0 1]);
+sgtitle('Justification: information-rate clustering outperforms channel-norm clustering', 'FontSize', 12);
+
+%% ====================================================================
 %  FIGURE 5 - EMPIRICAL BER with LIST detection  [UNCHANGED]
 %% ====================================================================
 figure('Name', 'BER-List', 'Position', [940 620 940 580]);
@@ -1620,13 +1632,6 @@ semilogy(SNR_dB, max(aBERrt(1, :), flr), ':o', 'Color', cRT, 'LineWidth', lw, 'M
 semilogy(SNR_dB, max(aBERrt(2, :), flr), ':s', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: SIC');
 semilogy(SNR_dB, max(aBERrt(3, :), flr), ':^', 'Color', [0 0.35 0], 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: List-SIC');
 semilogy(SNR_dB, max(aBERrt(4, :), flr), ':d', 'Color', [0 0.20 0], 'LineWidth', lw + 1.0, 'MarkerSize', ms + 1, 'DisplayName', 'Rate-Cluster: List+CrossAP (proposed)');
-% [PERFECT-CSI OVERLAY] dashed genie bound for the SAME rate-cluster detectors
-if perfect_csi_overlay
-    semilogy(SNR_dB, max(aBERrt_pf(1, :), flr), '--o', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: Linear (perfect CSI)');
-    semilogy(SNR_dB, max(aBERrt_pf(2, :), flr), '--s', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: SIC (perfect CSI)');
-    semilogy(SNR_dB, max(aBERrt_pf(3, :), flr), '--^', 'Color', [0 0.35 0], 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: List-SIC (perfect CSI)');
-    semilogy(SNR_dB, max(aBERrt_pf(4, :), flr), '--d', 'Color', [0 0.20 0], 'LineWidth', lw + 1.0, 'MarkerSize', ms + 1, 'DisplayName', 'Rate-Cluster: List+CrossAP (perfect CSI)');
-end
 box on;
 grid on;
 set(gca, 'YMinorGrid', 'on');
@@ -1708,13 +1713,6 @@ for d = 1:4
     plot(SNR_dB, SE_det(d, :), mk{d}, 'Color', cDet{d}, ...
          'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
 end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] dashed genie goodput
-    for d = 1:4
-        plot(SNR_dB, SE_det_pf(d, :), ['--' mk{d}(end)], 'Color', cDet{d}, ...
-             'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
-             'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
-end
 yline(K * prelog * log2(modOrder), '--k', 'LineWidth', 1.2, ...
       'DisplayName', 'Alphabet bound K\cdotprelog\cdotlog_2(M)');
 xlabel('SNR [dB]', 'FontSize', 12);
@@ -1728,13 +1726,6 @@ hold on; box on; grid on;
 for d = 1:4
     plot(SNR_dB, SEeff_det(d, :), mk{d}, 'Color', cDet{d}, ...
          'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
-end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] dashed genie effective-SINR rate
-    for d = 1:4
-        plot(SNR_dB, SEeff_det_pf(d, :), ['--' mk{d}(end)], 'Color', cDet{d}, ...
-             'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
-             'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
 end
 yline(K * prelog * log2(1 + nSymTot), ':k', 'LineWidth', 1.2, ...
       'DisplayName', 'NMSE measurement floor');
@@ -2116,6 +2107,47 @@ xlabel('Number of users K', 'FontSize', 12);
 ylabel('Complex multiplications per channel use', 'FontSize', 12);
 title(sprintf('Detector complexity vs K  (L=%d, N=%d)', L, N), 'FontSize', 11);
 legend('Location', 'northwest', 'FontSize', 9);
+
+%% ====================================================================
+function S = ir_cluster_score(R2, C, pilotMap, p, N, L, K)
+% INFORMATION-RATE clustering metric (Mashdour, Salehi, de Lamare, Schmeink,
+% Lima, "Clustering and Scheduling With Fairness Based on Information Rates for
+% Cell-Free MIMO Networks," IEEE WCL 13(7):1798-1802, 2024).
+%
+% For every AP l and user k it returns an achievable-rate score that, unlike
+% the channel-norm metric, is NOT monotone in the channel energy, because it
+% subtracts off (i) the residual multiuser interference and (ii) the co-pilot
+% contamination that AP l suffers for user k. Ranking APs by this score and
+% keeping the strongest ones therefore selects a DIFFERENT (cleaner) subset
+% than channel norm, which is what makes IR clustering outperform CN.
+%
+%   g_lk = tr(R_lk) - tr(C_lk)                 effective desired estimate power
+%   I_lk = sum_{j != k} g_lj                    residual interference at AP l
+%   Ipc_lk = sum_{j in copilot(k)} g_lj         co-pilot contamination (weighted)
+%   score_lk = log2( 1 + p*g_lk / ( p*(I_lk + w*Ipc_lk) + 1 ) )
+%
+% The co-pilot term is weighted more heavily (w>1) because pilot-sharing users
+% inject COHERENT (non-averaging) interference into the estimate, the exact
+% mechanism that channel norm ignores.
+    w_pc = 3;                    % extra weight on coherent co-pilot contamination
+    g = zeros(L, K);
+    for l = 1:L
+        for k = 1:K
+            g(l, k) = max(real(trace(R2(:, :, l, k))) - real(trace(C(:, :, l, k))), 0);
+        end
+    end
+    S = zeros(L, K);
+    for k = 1:K
+        cop = find(pilotMap(:) == pilotMap(k));
+        cop(cop == k) = [];                        % co-pilot users of k
+        oth = setdiff((1:K)', k);                  % all other users
+        for l = 1:L
+            I_res = sum(g(l, oth));                 % residual multiuser interference
+            I_pc  = sum(g(l, cop));                 % coherent co-pilot contamination
+            S(l, k) = log2(1 + p * g(l, k) / (p * (I_res + w_pc * I_pc) + 1));
+        end
+    end
+end
 
 %% ====================================================================
 function [SE, BER] = det_local_sic(Hhat_mc, H_mc, C, serv, p, prelog, eta, N, L, K)
