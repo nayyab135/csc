@@ -308,10 +308,24 @@ mNMSErt = zeros(4, K, nSetups, nSNR);
 %    covariance (a genie upper bound). Feeds the two new summary figures.
 %  Set csi_study = false to skip the extra passes and recover the old runtime.
 csi_study = true;
-eBERrt_est = zeros(4, nSetups, nSNR);      % estimated-CSI BER, 4 detectors
-eBERrt_pf  = zeros(4, nSetups, nSNR);      % perfect-CSI   BER, 4 detectors
+eBERrt_est = zeros(4, nSetups, nSNR);      % estimated-CSI BER, 4 detectors (near-field/hybrid)
+eBERrt_pf  = zeros(4, nSetups, nSNR);      % perfect-CSI   BER, 4 detectors (near-field/hybrid)
 mBERrt_est = zeros(4, K, nSetups, nSNR);   % per-user BER (for sum-rate), estimated
 mBERrt_pf  = zeros(4, K, nSetups, nSNR);   % per-user BER (for sum-rate), perfect
+mNMSErt_est = zeros(4, K, nSetups, nSNR);  % per-user symbol NMSE, estimated (for achievable rate)
+mNMSErt_pf  = zeros(4, K, nSetups, nSNR);  % per-user symbol NMSE, perfect
+
+% [FAR-FIELD COMPARISON] same system + same rate cluster, but ALL links use the
+% far-field (planar-wave) channel model and far-field LMMSE estimation. Lets us
+% compare, for each detector, near-field vs far-field channel models under both
+% perfect and estimated CSI. Set ff_study = false to skip.
+ff_study = true;
+eBERrt_ff_est = zeros(4, nSetups, nSNR);   eBERrt_ff_pf = zeros(4, nSetups, nSNR);
+mBERrt_ff_est = zeros(4, K, nSetups, nSNR);  mBERrt_ff_pf = zeros(4, K, nSetups, nSNR);
+mNMSErt_ff_est = zeros(4, K, nSetups, nSNR); mNMSErt_ff_pf = zeros(4, K, nSetups, nSNR);
+% [ESTIMATOR NMSE] channel-estimation quality tr(C)/tr(R), averaged over links
+nmse_est_acc = zeros(nSetups, nSNR);       % near-field/hybrid estimator NMSE
+nmse_ff_acc  = zeros(nSetups, nSNR);       % far-field estimator NMSE
 
 
 
@@ -965,6 +979,7 @@ parfor ns = 1:nSetups
         % [CSI STUDY] accumulators for perfect and proper-estimated CSI
         brt_est = zeros(4, 1);  brt_pf = zeros(4, 1);
         mB_est  = zeros(4, K);  mB_pf  = zeros(4, K);
+        mN_est  = zeros(4, K);  mN_pf  = zeros(4, K);
         Cs0     = zeros(size(Cs));
         for mc = 1:nReal
             Hm = reshape(Hcs(:, mc, :), [LN, K]);
@@ -989,13 +1004,13 @@ parfor ns = 1:nSetups
                 Hhe = reshape(Hhs_est(:, mc, :), [LN, K]);
                 [a1, a2, a3, a4] = ber_case(Hhe, Hm, Cs_est, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
                 brt_est = brt_est + [a1; a2; a3; a4];
-                [bue, ~] = metrics_case(Hhe, Hm, Cs_est, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
-                mB_est = mB_est + bue;
+                [bue, nue] = metrics_case(Hhe, Hm, Cs_est, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                mB_est = mB_est + bue;   mN_est = mN_est + nue;
                 % [CSI STUDY] PERFECT CSI: true channel in the combiner, C = 0.
                 [q1, q2, q3, q4] = ber_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
                 brt_pf = brt_pf + [q1; q2; q3; q4];
-                [bup, ~] = metrics_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
-                mB_pf = mB_pf + bup;
+                [bup, nup] = metrics_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                mB_pf = mB_pf + bup;   mN_pf = mN_pf + nup;
             end
         end
         eBERhf(:, ns, si) = bhf / max(nbit, 1);
@@ -1010,7 +1025,78 @@ parfor ns = 1:nSetups
         eBERrt_pf(:, ns, si)     = brt_pf  / max(nbit, 1);
         mBERrt_est(:, :, ns, si) = mB_est  / max(mbits, 1);
         mBERrt_pf(:, :, ns, si)  = mB_pf   / max(mbits, 1);
+        mNMSErt_est(:, :, ns, si) = mN_est / max(meng, 1);
+        mNMSErt_pf(:, :, ns, si)  = mN_pf  / max(meng, 1);
+        % [ESTIMATOR NMSE] channel-estimation quality tr(C)/tr(R) over links (hybrid)
+        e_num = 0;  e_den = 0;
+        for l = 1:L
+            for k = 1:K
+                e_num = e_num + real(trace(Cs_est(:, :, l, k)));
+                e_den = e_den + real(trace(R2(:, :, l, k)));
+            end
+        end
+        nmse_est_acc(ns, si) = e_num / max(e_den, eps);
         Hcs = []; Hhs = []; Cs = []; Nps = []; Hhs_est = []; Cs_est = [];
+
+        % ================= [FAR-FIELD COMPARISON] =========================
+        %  Same links, same rate cluster D_BSR_s, but ALL links use the
+        %  far-field (planar) channel R1 and far-field LMMSE estimation, under
+        %  perfect (C=0) and estimated CSI. Enables the NF-vs-FF figures.
+        if ff_study
+            Hcf = randn(LN, nReal, K) + 1j * randn(LN, nReal, K);
+            for l = 1:L
+                idx = (l - 1) * N + 1:l * N;
+                for k = 1:K
+                    Hcf(idx, :, k) = sqrt(0.5) * Rs1(:, :, l, k) * Hcf(idx, :, k);
+                end
+            end
+            Npf = sqrt(0.5) * (randn(N, nReal, L, tau_sym) + 1j * randn(N, nReal, L, tau_sym));
+            Hhf = zeros(LN, nReal, K);  Cf = zeros(N, N, L, K);
+            for l = 1:L
+                idx = (l - 1) * N + 1:l * N;
+                for t = 1:tau_sym
+                    ue_t = find(pilotSym == t)';
+                    yp = sqrt(p) * tau_sym * sum(Hcf(idx, :, ue_t), 3) + sqrt(tau_sym) * Npf(:, :, l, t);
+                    Psi_t = p * tau_sym * sum(R1(:, :, l, ue_t), 4) + eye(N);
+                    for k = ue_t
+                        RPsi = R1(:, :, l, k) / Psi_t;
+                        Hhf(idx, :, k) = sqrt(p) * RPsi * yp;
+                        Cf(:, :, l, k) = R1(:, :, l, k) - p * tau_sym * RPsi * R1(:, :, l, k);
+                    end
+                end
+            end
+            f_num = 0;  f_den = 0;
+            for l = 1:L
+                for k = 1:K
+                    f_num = f_num + real(trace(Cf(:, :, l, k)));
+                    f_den = f_den + real(trace(R1(:, :, l, k)));
+                end
+            end
+            nmse_ff_acc(ns, si) = f_num / max(f_den, eps);
+            brt_fe = zeros(4, 1);  brt_fp = zeros(4, 1);
+            mB_fe = zeros(4, K);   mB_fp = zeros(4, K);
+            mN_fe = zeros(4, K);   mN_fp = zeros(4, K);
+            Cf0 = zeros(size(Cf));
+            for mc = 1:nReal
+                Hmf = reshape(Hcf(:, mc, :), [LN, K]);
+                Hef = reshape(Hhf(:, mc, :), [LN, K]);
+                [a1, a2, a3, a4] = ber_case(Hef, Hmf, Cf, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                brt_fe = brt_fe + [a1; a2; a3; a4];
+                [bfe, nfe] = metrics_case(Hef, Hmf, Cf, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                mB_fe = mB_fe + bfe;  mN_fe = mN_fe + nfe;
+                [q1, q2, q3, q4] = ber_case(Hmf, Hmf, Cf0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                brt_fp = brt_fp + [q1; q2; q3; q4];
+                [bfp, nfp] = metrics_case(Hmf, Hmf, Cf0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                mB_fp = mB_fp + bfp;  mN_fp = mN_fp + nfp;
+            end
+            eBERrt_ff_est(:, ns, si)     = brt_fe / max(nbit, 1);
+            eBERrt_ff_pf(:, ns, si)      = brt_fp / max(nbit, 1);
+            mBERrt_ff_est(:, :, ns, si)  = mB_fe / max(mbits, 1);
+            mBERrt_ff_pf(:, :, ns, si)   = mB_fp / max(mbits, 1);
+            mNMSErt_ff_est(:, :, ns, si) = mN_fe / max(meng, 1);
+            mNMSErt_ff_pf(:, :, ns, si)  = mN_fp / max(meng, 1);
+            Hcf = []; Hhf = []; Cf = []; Npf = [];
+        end
 
         %----------------------------------------------------------
         %  [FIGURE 2 EMPIRICAL] Monte-Carlo Linear + Hard-SIC BER
@@ -1207,6 +1293,14 @@ if nSetups == 1
     aBERrt_pf  = reshape(eBERrt_pf, 4, nSNR);
     mBER_u_est = reshape(mBERrt_est, 4, K, nSNR);
     mBER_u_pf  = reshape(mBERrt_pf, 4, K, nSNR);
+    mNMSE_u_est = reshape(mNMSErt_est, 4, K, nSNR);
+    mNMSE_u_pf  = reshape(mNMSErt_pf, 4, K, nSNR);
+    aBERrt_ff_est = reshape(eBERrt_ff_est, 4, nSNR);       % [FAR-FIELD]
+    aBERrt_ff_pf  = reshape(eBERrt_ff_pf, 4, nSNR);
+    mBER_u_ff_est = reshape(mBERrt_ff_est, 4, K, nSNR);
+    mBER_u_ff_pf  = reshape(mBERrt_ff_pf, 4, K, nSNR);
+    mNMSE_u_ff_est = reshape(mNMSErt_ff_est, 4, K, nSNR);
+    mNMSE_u_ff_pf  = reshape(mNMSErt_ff_pf, 4, K, nSNR);
 else
     aBERhf = squeeze(mean(eBERhf, 2));
     aBERcn = squeeze(mean(eBERcn, 2));
@@ -1222,7 +1316,17 @@ else
     aBERrt_pf  = squeeze(mean(eBERrt_pf, 2));
     mBER_u_est = squeeze(mean(mBERrt_est, 3));
     mBER_u_pf  = squeeze(mean(mBERrt_pf, 3));
+    mNMSE_u_est = squeeze(mean(mNMSErt_est, 3));
+    mNMSE_u_pf  = squeeze(mean(mNMSErt_pf, 3));
+    aBERrt_ff_est = squeeze(mean(eBERrt_ff_est, 2));       % [FAR-FIELD]
+    aBERrt_ff_pf  = squeeze(mean(eBERrt_ff_pf, 2));
+    mBER_u_ff_est = squeeze(mean(mBERrt_ff_est, 3));
+    mBER_u_ff_pf  = squeeze(mean(mBERrt_ff_pf, 3));
+    mNMSE_u_ff_est = squeeze(mean(mNMSErt_ff_est, 3));
+    mNMSE_u_ff_pf  = squeeze(mean(mNMSErt_ff_pf, 3));
 end
+nmse_est = mean(nmse_est_acc, 1);    % [ESTIMATOR NMSE] 1 x nSNR
+nmse_ff  = mean(nmse_ff_acc, 1);
 
 
 
@@ -1239,10 +1343,13 @@ end
 
 % [CSI STUDY] goodput sum-rate of the 4 detectors under estimated and perfect CSI
 SE_det_est = zeros(4, nSNR);   SE_det_pf = zeros(4, nSNR);
+SE_det_ff_est = zeros(4, nSNR);  SE_det_ff_pf = zeros(4, nSNR);   % [FAR-FIELD] goodput
 for si = 1:nSNR
     for d = 1:4
         SE_det_est(d, si) = sum(prelog * bits_sym * (1 - squeeze(mBER_u_est(d, :, si))));
         SE_det_pf(d, si)  = sum(prelog * bits_sym * (1 - squeeze(mBER_u_pf(d, :, si))));
+        SE_det_ff_est(d, si) = sum(prelog * bits_sym * (1 - squeeze(mBER_u_ff_est(d, :, si))));
+        SE_det_ff_pf(d, si)  = sum(prelog * bits_sym * (1 - squeeze(mBER_u_ff_pf(d, :, si))));
     end
 end
 
@@ -1283,6 +1390,22 @@ for si = 1:nSNR
     end
 end
 SEeff_capped = any(squeeze(mNMSE_u(:, :, :)) < nmseFloor, 2);
+
+% [ACHIEVABLE RATE] effective-SINR sum-rate SE_k = prelog*log2(1+1/NMSE_k). Unlike
+% the goodput (which saturates at the 16-QAM alphabet bound, so all detectors meet
+% at high SNR), this is unbounded and keeps growing with SNR, separating the
+% detectors by their decision quality. Computed for perfect and estimated CSI,
+% near-field/hybrid and far-field.
+SEeff_det_est = zeros(4, nSNR);  SEeff_det_pf = zeros(4, nSNR);
+SEeff_det_ff_est = zeros(4, nSNR);  SEeff_det_ff_pf = zeros(4, nSNR);
+for si = 1:nSNR
+    for d = 1:4
+        SEeff_det_est(d, si)    = sum(prelog * log2(1 + 1 ./ max(squeeze(mNMSE_u_est(d, :, si)),    nmseFloor)));
+        SEeff_det_pf(d, si)     = sum(prelog * log2(1 + 1 ./ max(squeeze(mNMSE_u_pf(d, :, si)),     nmseFloor)));
+        SEeff_det_ff_est(d, si) = sum(prelog * log2(1 + 1 ./ max(squeeze(mNMSE_u_ff_est(d, :, si)), nmseFloor)));
+        SEeff_det_ff_pf(d, si)  = sum(prelog * log2(1 + 1 ./ max(squeeze(mNMSE_u_ff_pf(d, :, si)),  nmseFloor)));
+    end
+end
 
 si_cdf = snr_ref_idx;
 seSamp = cell(4, 1);
@@ -2147,6 +2270,105 @@ if csi_study
             SNR_dB(end), aBERrt_est(4, end), aBERrt_pf(4, end));
     fprintf('[CSI] Sum-rate at %ddB (proposed detector): estimated=%.2f  perfect=%.2f bps/Hz\n', ...
             SNR_dB(end), SE_det_est(4, end), SE_det_pf(4, end));
+end
+
+% shared style for the CSI / NF-vs-FF figures
+cD4 = {[0.85 0.10 0.10], [0.55 0 0], [0.20 0.20 0.75], [0.30 0 0]};
+mk4 = {'o', 's', '^', 'd'};
+nm4 = {'Linear (L-MMSE)', 'SIC', 'List-SIC', 'List+CrossAP (proposed)'};
+flrC = 1e-6;
+cNF = [0.30 0 0];  cFF = [0 0.35 0.65];
+
+if csi_study
+    %% NEW FIGURE C - ACHIEVABLE (effective-SINR) sum-rate vs SNR ----------
+    %  Unlike the goodput (which meets the 16-QAM alphabet bound at high SNR,
+    %  so all detectors converge), this rate is unbounded and keeps growing,
+    %  so the detectors fan out from low to high SNR.
+    figure('Name', 'CSI-AchievableRate-vs-SNR', 'Position', [60 70 960 640]);
+    hold on; box on; grid on;
+    for d = 1:4
+        plot(SNR_dB, SEeff_det_est(d, :), ['-' mk4{d}], 'Color', cD4{d}, 'LineWidth', 2, ...
+            'MarkerSize', 7, 'DisplayName', [nm4{d} ' - estimated CSI']);
+    end
+    for d = 1:4
+        plot(SNR_dB, SEeff_det_pf(d, :), ['--' mk4{d}], 'Color', cD4{d}, 'LineWidth', 2, ...
+            'MarkerSize', 7, 'DisplayName', [nm4{d} ' - perfect CSI']);
+    end
+    set(gca, 'XTick', SNR_dB);
+    xlabel('SNR [dB]', 'FontSize', 13); ylabel('Achievable sum-rate [bps/Hz]', 'FontSize', 13);
+    title('Achievable (effective-SINR) sum-rate vs SNR: estimated vs perfect CSI', 'FontSize', 11);
+    legend('Location', 'northwest', 'FontSize', 8, 'NumColumns', 2);
+
+    %% NEW FIGURE H - ROBUSTNESS to CSI error (goodput loss per detector) ---
+    figure('Name', 'CSI-Robustness-to-Estimation-Error', 'Position', [90 50 900 600]);
+    hold on; box on; grid on;
+    for d = 1:4
+        plot(SNR_dB, max(SE_det_pf(d, :) - SE_det_est(d, :), 0), ['-' mk4{d}], 'Color', cD4{d}, ...
+            'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', nm4{d});
+    end
+    set(gca, 'XTick', SNR_dB);
+    xlabel('SNR [dB]', 'FontSize', 13); ylabel('Sum-rate loss from CSI error [bps/Hz]', 'FontSize', 13);
+    title(sprintf('Robustness to CSI error: goodput loss (perfect - estimated) per detector\n(smaller = more robust)'), 'FontSize', 11);
+    legend('Location', 'northeast', 'FontSize', 9);
+
+    %% NEW FIGURE G - estimator NMSE vs SNR --------------------------------
+    figure('Name', 'Estimator-NMSE-vs-SNR', 'Position', [110 40 860 560]);
+    semilogy(SNR_dB, max(nmse_est, 1e-6), '-o', 'Color', cNF, 'LineWidth', 2, 'MarkerSize', 7, ...
+        'DisplayName', 'Near-field (NUSW) LMMSE'); hold on; box on; grid on;
+    if ff_study
+        semilogy(SNR_dB, max(nmse_ff, 1e-6), '-s', 'Color', cFF, 'LineWidth', 2, 'MarkerSize', 7, ...
+            'DisplayName', 'Far-field LMMSE');
+    end
+    set(gca, 'YScale', 'log', 'YMinorGrid', 'on', 'XTick', SNR_dB);
+    xlabel('SNR [dB]', 'FontSize', 13); ylabel('Estimator NMSE = tr(C)/tr(R)', 'FontSize', 13);
+    title('Channel-estimation quality vs SNR (\tau_{sym} pilots)', 'FontSize', 11);
+    legend('Location', 'southwest', 'FontSize', 9);
+end
+
+if ff_study
+    %% NEW FIGURE D - Proposed Cross-AP: BER, near-field vs far-field ------
+    figure('Name', 'CrossAP-BER-NF-vs-FF', 'Position', [60 70 900 620]);
+    d = 4;
+    semilogy(SNR_dB, max(aBERrt_pf(d, :), flrC),   '-d',  'Color', cNF, 'LineWidth', 2.2, 'MarkerSize', 8, 'DisplayName', 'Near-field, perfect CSI'); hold on;
+    semilogy(SNR_dB, max(aBERrt_est(d, :), flrC),  '--d', 'Color', cNF, 'LineWidth', 2.2, 'MarkerSize', 8, 'DisplayName', 'Near-field, estimated CSI');
+    semilogy(SNR_dB, max(aBERrt_ff_pf(d, :), flrC),  '-o',  'Color', cFF, 'LineWidth', 2.2, 'MarkerSize', 8, 'DisplayName', 'Far-field, perfect CSI');
+    semilogy(SNR_dB, max(aBERrt_ff_est(d, :), flrC), '--o', 'Color', cFF, 'LineWidth', 2.2, 'MarkerSize', 8, 'DisplayName', 'Far-field, estimated CSI');
+    set(gca, 'YScale', 'log', 'YMinorGrid', 'on', 'XTick', SNR_dB); ylim([1e-5 1]);
+    xlabel('SNR [dB]', 'FontSize', 13); ylabel('BER (16-QAM)', 'FontSize', 13);
+    title('Proposed Cross-AP List-SIC: near-field vs far-field channel model', 'FontSize', 11);
+    legend('Location', 'southwest', 'FontSize', 9);
+
+    %% NEW FIGURE E - Proposed Cross-AP: sum-rate, near-field vs far-field -
+    figure('Name', 'CrossAP-SumRate-NF-vs-FF', 'Position', [90 50 900 620]);
+    d = 4;
+    plot(SNR_dB, SE_det_pf(d, :),     '-d',  'Color', cNF, 'LineWidth', 2.2, 'MarkerSize', 8, 'DisplayName', 'Near-field, perfect CSI'); hold on; box on; grid on;
+    plot(SNR_dB, SE_det_est(d, :),    '--d', 'Color', cNF, 'LineWidth', 2.2, 'MarkerSize', 8, 'DisplayName', 'Near-field, estimated CSI');
+    plot(SNR_dB, SE_det_ff_pf(d, :),  '-o',  'Color', cFF, 'LineWidth', 2.2, 'MarkerSize', 8, 'DisplayName', 'Far-field, perfect CSI');
+    plot(SNR_dB, SE_det_ff_est(d, :), '--o', 'Color', cFF, 'LineWidth', 2.2, 'MarkerSize', 8, 'DisplayName', 'Far-field, estimated CSI');
+    set(gca, 'XTick', SNR_dB);
+    xlabel('SNR [dB]', 'FontSize', 13); ylabel('Goodput sum-rate [bps/Hz]', 'FontSize', 13);
+    title('Proposed Cross-AP List-SIC: sum-rate, near-field vs far-field channel model', 'FontSize', 11);
+    legend('Location', 'northwest', 'FontSize', 9);
+
+    %% NEW FIGURE F - Other detectors (Linear, SIC, List-SIC): NF vs FF ----
+    figure('Name', 'OtherDetectors-NF-vs-FF', 'Position', [40 40 1220 540]);
+    subplot(1, 2, 1); hold on; box on; grid on;
+    for d = 1:3
+        semilogy(SNR_dB, max(aBERrt_pf(d, :), flrC),    ['-' mk4{d}],  'Color', cD4{d}, 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (near-field)']);
+        semilogy(SNR_dB, max(aBERrt_ff_pf(d, :), flrC), ['--' mk4{d}], 'Color', cD4{d}, 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (far-field)']);
+    end
+    set(gca, 'YScale', 'log', 'YMinorGrid', 'on', 'XTick', SNR_dB); ylim([1e-5 1]);
+    xlabel('SNR [dB]', 'FontSize', 12); ylabel('BER (16-QAM)', 'FontSize', 12);
+    title('BER (perfect CSI)', 'FontSize', 11); legend('Location', 'southwest', 'FontSize', 8);
+    subplot(1, 2, 2); hold on; box on; grid on;
+    for d = 1:3
+        plot(SNR_dB, SE_det_pf(d, :),    ['-' mk4{d}],  'Color', cD4{d}, 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (near-field)']);
+        plot(SNR_dB, SE_det_ff_pf(d, :), ['--' mk4{d}], 'Color', cD4{d}, 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (far-field)']);
+    end
+    set(gca, 'XTick', SNR_dB);
+    xlabel('SNR [dB]', 'FontSize', 12); ylabel('Goodput sum-rate [bps/Hz]', 'FontSize', 12);
+    title('Sum-rate (perfect CSI)', 'FontSize', 11); legend('Location', 'northwest', 'FontSize', 8);
+    sgtitle('Other detectors: near-field vs far-field channel model', 'FontSize', 12);
 end
 
 %% ====================================================================
