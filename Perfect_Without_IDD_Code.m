@@ -155,17 +155,6 @@ else
 end
 prelog = 1 - tau_p / tau_c;
 
-% [CENTRALIZED-BS FIX] Pilot length for the CENTRALIZED base station only.
-% The centralized array is a single entity with one pilot pool, so pilot
-% contamination (a pilot-REUSE artifact across distributed APs) need not
-% apply to it. Giving the BS orthogonal pilots (tau_p_BS = K) removes the
-% co-pilot contamination that was floaring its BER despite N_BS antennas.
-% NOTE: this is an honest modelling choice, not a curve tweak. It may lift
-% the centralized curves by more than a little -- that jump is the true
-% magnitude of the contamination penalty. Set tau_p_BS = tau_p to revert to
-% the old contaminated behaviour, or to an intermediate value to soften it.
-tau_p_BS = K;
-
 % ---- startup sanity checks -----------------------------------------
 % Non integer or out of range pilot lengths produce failures far from
 % their cause: randn(...,tau_p) errors, mod(...,tau_p) yields fractional
@@ -203,17 +192,6 @@ maxBr   = 8;
 modOrder = 16;
 modOrder2 = 16;
 
-% [PERFECT-CSI OVERLAY] When true, the IR-cluster detectors are ALSO run with
-% genie (perfect) CSI in the same Monte-Carlo loop: the true channel is fed to
-% the combiner in place of the MMSE estimate and the estimation-error
-% covariance is set to zero. Perfect CSI is a genuine UPPER BOUND (computed,
-% not hand-set) and is >= the estimated-CSI result by construction. It adds
-% perfect-CSI curves to Figs 5,6,7,8,9,10,11,14. Figs 12/13/15 (complexity and
-% fronthaul) do NOT depend on CSI quality, so no perfect-CSI curve is added
-% there -- it would land exactly on the estimated one. Set false to recover the
-% original runtime and figures exactly.
-perfect_csi_overlay = true;
-
 
 %% ====================================================================
 %  RUNTIME MODE
@@ -230,12 +208,6 @@ else
     nSym    = 400;
     nSym2   = 1200;
 end
-
-% [IR CLUSTERING] realizations used to SCORE a candidate cluster inside the
-% information-rate local search. nDec_clu = nReal makes IR sum-rate >= CN
-% sum-rate exactly on the plotted average (the guarantee); lowering it speeds
-% the clustering search up at the cost of turning that guarantee approximate.
-nDec_clu = nReal;
 
 fprintf('=== CF-mMIMO: FF-only vs NF/FF vs Centralized + Clustering + List ===\n');
 fprintf('L=%d  K=%d  N=%d  N_BS=%d  LN/K=%.0f\n', L, K, N, N_BS, LN / K);
@@ -311,12 +283,6 @@ loadCN_acc = zeros(nSetups, nSNR);
 loadBSR_acc = zeros(nSetups, nSNR);
 clDiff_acc = zeros(nSetups, nSNR);
 
-% [CLUSTERING JUSTIFICATION] per-user SIC rate at the reference SNR, one column
-% per setup, for CN and IR (rate) clustering. Used by the new justification
-% figure (per-user rate CDF: IR should dominate, especially the cell-edge tail).
-seU_CN_acc = zeros(nSetups, K);
-seU_RT_acc = zeros(nSetups, K);
-
 % rows: [Linear, Hard-SIC, List-SIC, List+CrossAP(proposed)]
 eBERhf = zeros(4, nSetups, nSNR);
 eBERcn = zeros(4, nSetups, nSNR);
@@ -333,12 +299,19 @@ eBER2_rt = zeros(2, nSetups, nSNR);
 mBERrt  = zeros(4, K, nSetups, nSNR);
 mNMSErt = zeros(4, K, nSetups, nSNR);
 
-% [PERFECT-CSI OVERLAY] genie mirrors (true channel, zero estimation error)
-eBERrt_pf  = zeros(4, nSetups, nSNR);        % IR-cluster detector BER (Figs 5,10,14)
-mBERrt_pf  = zeros(4, K, nSetups, nSNR);     % per-user BER  (Figs 6,8,9,14)
-mNMSErt_pf = zeros(4, K, nSetups, nSNR);     % per-user NMSE (Figs 7,9)
-SR_RTcl_lmmse_pf_acc = zeros(nSetups, nSNR); % analytical IR-cluster rate (Fig 11)
-SR_RTcl_cnsic_pf_acc = zeros(nSetups, nSNR);
+% [CSI STUDY] perfect vs proper-estimated CSI for the 4 detectors (rate cluster).
+%  - "estimated": far-field links use the standard LMMSE estimate; near-field
+%    links use the near-field-aware (NUSW, rank-1 spherical) LMMSE estimate that
+%    the code already forms via R2 -- i.e. NO deterministic override. This is the
+%    genuinely estimated hybrid NF/FF case (see channel_estimation_note.pdf).
+%  - "perfect": the true channel is used in the combiner with zero error
+%    covariance (a genie upper bound). Feeds the two new summary figures.
+%  Set csi_study = false to skip the extra passes and recover the old runtime.
+csi_study = true;
+eBERrt_est = zeros(4, nSetups, nSNR);      % estimated-CSI BER, 4 detectors
+eBERrt_pf  = zeros(4, nSetups, nSNR);      % perfect-CSI   BER, 4 detectors
+mBERrt_est = zeros(4, K, nSetups, nSNR);   % per-user BER (for sum-rate), estimated
+mBERrt_pf  = zeros(4, K, nSetups, nSNR);   % per-user BER (for sum-rate), perfect
 
 
 
@@ -420,9 +393,6 @@ parfor ns = 1:nSetups
         pilotSym = mod((0:K - 1)', tau_sym) + 1;
         pilotF2  = mod((0:K - 1)', tau_fig2) + 1;
     end
-    % [CENTRALIZED-BS FIX] orthogonal pilots for the centralized BS: each user
-    % gets its own pilot when tau_p_BS >= K, so there is no BS contamination.
-    pilotBS = mod((0:K - 1)', tau_p_BS) + 1;
 
     % ------------------------------------------------------------------
     %  Cell-free channel statistics (Cases 1 & 2)  [UNCHANGED]
@@ -723,19 +693,18 @@ parfor ns = 1:nSetups
             H_BS(:, :, k) = sqrt(0.5) * Rs_BS(:, :, k) * H_BS(:, :, k);
         end
 
-        % [CENTRALIZED-BS FIX] estimate on tau_p_BS orthogonal pilots (no reuse)
-        Np_BS = sqrt(0.5) * (randn(N_BS, nReal, tau_p_BS) + 1j * randn(N_BS, nReal, tau_p_BS));
+        Np_BS = sqrt(0.5) * (randn(N_BS, nReal, tau_p) + 1j * randn(N_BS, nReal, tau_p));
         Hhat_BS = zeros(N_BS, nReal, K);
         C_BS   = zeros(N_BS, N_BS, K);
 
-        for t = 1:tau_p_BS
-            ue_t = find(pilotBS == t)';
-            yp_BS = sqrt(p) * tau_p_BS * sum(H_BS(:, :, ue_t), 3) + sqrt(tau_p_BS) * Np_BS(:, :, t);
-            Psi_t_BS = p * tau_p_BS * sum(R_BS(:, :, ue_t), 3) + eye(N_BS);
+        for t = 1:tau_p
+            ue_t = find(pilotIndex == t)';
+            yp_BS = sqrt(p) * tau_p * sum(H_BS(:, :, ue_t), 3) + sqrt(tau_p) * Np_BS(:, :, t);
+            Psi_t_BS = p * tau_p * sum(R_BS(:, :, ue_t), 3) + eye(N_BS);
             for k = ue_t
                 RPsi_BS = R_BS(:, :, k) / Psi_t_BS;
                 Hhat_BS(:, :, k) = sqrt(p) * RPsi_BS * yp_BS;
-                C_BS(:, :, k) = R_BS(:, :, k) - p * tau_p_BS * RPsi_BS * R_BS(:, :, k);
+                C_BS(:, :, k) = R_BS(:, :, k) - p * tau_p * RPsi_BS * R_BS(:, :, k);
             end
         end
 
@@ -830,15 +799,33 @@ parfor ns = 1:nSetups
             end
         end
 
-        % ---- INFORMATION-RATE clustering  [FIXED: Mashdour WCL 2024] ----
-        %  IR clustering is a rate-improving local search seeded at the CN
-        %  cluster, scored by the ACTUAL detector (det_local_sic) over the same
-        %  estimates the figures average. Only rate-increasing AP swaps are
-        %  accepted, so IR sum-rate >= CN sum-rate by construction (no proxy).
-        %  This single mask is reused for the list and Fig-2 paths below, since
-        %  in contamination_mode all three share the same pilots and statistics.
-        D_BSR = ir_cluster_refine_det(D_CN, Hhc, Hc, Cc, metric_CN, p, prelog, ...
-                                      eta_FH, N, L, K, nDec_clu);
+        % ---- ORIGINAL rate score, LEFT EXACTLY AS WRITTEN (see W6) ----
+        %  This omits the sum over j ~= k, so it is a monotone function of
+        %  estimate energy and therefore a near duplicate of channel norm.
+        %  It is retained unchanged so the old figures do not move. The
+        %  NOTE: this score has NO sum over j ~= k, so it is a monotone
+        %  function of estimate energy and therefore ranks APs almost
+        %  exactly as channel norm does. That is why the CN-Cluster and
+        %  Rate-Cluster curves nearly coincide. Mashdour eq. (2) measures
+        %  the rate AFTER the local combiner and includes the interference
+        %  the combiner leaves behind. Left as written, unchanged.
+        SRlk = zeros(L, K);
+        for l = 1:L
+            for k = 1:K
+                gmm = max(real(trace(R2(:, :, l, k))) - real(trace(Cc(:, :, l, k))), 0);
+                er  = real(trace(Cc(:, :, l, k)));
+                SRlk(l, k) = log2(1 + p * gmm / (p * er + 1));
+            end
+        end
+        alpha_src = mean(SRlk(:));
+
+        D_BSR = false(L, K);
+        for k = 1:K
+            [~, rk] = sort(SRlk(:, k), 'descend');
+            sz_cn  = max(nnz(D_CN(:, k)), 1);
+            sz_rt  = sz_cn;
+            D_BSR(rk(1:sz_rt), k) = true;
+        end
         loadCN_acc(ns, si) = mean(sum(D_CN, 1));
         loadBSR_acc(ns, si) = mean(sum(D_BSR, 1));
         clDiff_acc(ns, si) = mean(sum(D_CN ~= D_BSR, 1));
@@ -872,32 +859,11 @@ parfor ns = 1:nSetups
                 BER_CNcl_lmmse_acc(ns, si) = mean(BEl(:));
                 SR_CNcl_cnsic_acc(ns, si) = sum(mean(SEs, 2));
                 BER_CNcl_cnsic_acc(ns, si) = mean(BEs(:));
-                % [CLUSTERING JUSTIFICATION] per-user SIC rate at ref SNR, CN
-                if si == snr_ref_idx
-                    seU_CN_acc(ns, :) = mean(SEs, 2).';
-                end
             else
                 SR_RTcl_lmmse_acc(ns, si) = sum(mean(SEl, 2));
                 BER_RTcl_lmmse_acc(ns, si) = mean(BEl(:));
                 SR_RTcl_cnsic_acc(ns, si) = sum(mean(SEs, 2));
                 BER_RTcl_cnsic_acc(ns, si) = mean(BEs(:));
-
-                % [PERFECT-CSI OVERLAY] same IR-cluster combiners with the true
-                % channel and zero error covariance -> analytical rate bound (Fig 11)
-                if perfect_csi_overlay
-                    Cc0 = zeros(size(Cc));
-                    SEl_pf = zeros(K, nReal);
-                    SEs_pf = zeros(K, nReal);
-                    for mc = 1:nReal
-                        Hm = reshape(Hc(:, mc, :), [LN, K]);
-                        [se_l, ~] = det_local(Hm, Hm, Cc0, D_BSR, p, prelog, eta_FH, N, L, K);
-                        [se_s, ~] = det_local_sic(Hm, Hm, Cc0, D_BSR, p, prelog, eta_FH, N, L, K);
-                        SEl_pf(:, mc) = se_l;
-                        SEs_pf(:, mc) = se_s;
-                    end
-                    SR_RTcl_lmmse_pf_acc(ns, si) = sum(mean(SEl_pf, 2));
-                    SR_RTcl_cnsic_pf_acc(ns, si) = sum(mean(SEs_pf, 2));
-                end
 
                 % [NEW, DI RENNA-STYLE ANALYTICAL RATE]
                 % SEs above is the cluster-fused analytical sum-rate
@@ -916,10 +882,6 @@ parfor ns = 1:nSetups
                 end
                 SR_anaClu_acc(ns, si) = sum(mean(SEs, 2));      % cluster fusion
                 SR_anaAll_acc(ns, si) = sum(mean(SEs_all, 2));  % all-AP fusion
-                % [CLUSTERING JUSTIFICATION] per-user SIC rate at ref SNR, IR
-                if si == snr_ref_idx
-                    seU_RT_acc(ns, :) = mean(SEs, 2).';
-                end
             end
         end
 
@@ -956,6 +918,11 @@ parfor ns = 1:nSetups
                 end
             end
         end
+        % [CSI STUDY] keep the proper NF-aware LMMSE estimate BEFORE the
+        % deterministic near-field override below. For NF links R2 is the rank-1
+        % spherical (NUSW) correlation, so Hhs_est is a genuine near-field estimate
+        % (this is the "estimated CSI" used by the two new summary figures).
+        Hhs_est = Hhs;  Cs_est = Cs;
         for l = 1:L
             idx = (l - 1) * N + 1:l * N;
             for k = 1:K
@@ -968,9 +935,20 @@ parfor ns = 1:nSetups
             end
         end
 
-        % [FIXED: Mashdour WCL 2024] reuse the rate-optimised IR mask from the
-        % analytical block (same pilots/statistics in contamination_mode).
-        D_BSR_s = D_BSR;
+        SRs = zeros(L, K);
+        for l = 1:L
+            for k = 1:K
+                gmm = max(real(trace(R2(:, :, l, k))) - real(trace(Cs(:, :, l, k))), 0);
+                er = real(trace(Cs(:, :, l, k)));
+                SRs(l, k) = log2(1 + p * gmm / (p * er + 1));
+            end
+        end
+        D_BSR_s = false(L, K);
+        for k = 1:K
+            [~, rk] = sort(SRs(:, k), 'descend');
+            szc = max(nnz(D_CN(:, k)), 1);
+            D_BSR_s(rk(1:szc), k) = true;
+        end
 
 
         servAll = true(L, K);
@@ -984,11 +962,10 @@ parfor ns = 1:nSetups
         meng = 0;
         etaList_run = 0;   % [NEW] measured List-SIC trigger rate, this point
         etaXap_run  = 0;   % [NEW] measured Cross-AP invocation rate, this point
-        % [PERFECT-CSI OVERLAY] genie accumulators + zero error covariance
-        brt_pf = zeros(4, 1);
-        mB_pf  = zeros(4, K);
-        mN_pf  = zeros(4, K);
-        Cs0    = zeros(size(Cs));
+        % [CSI STUDY] accumulators for perfect and proper-estimated CSI
+        brt_est = zeros(4, 1);  brt_pf = zeros(4, 1);
+        mB_est  = zeros(4, K);  mB_pf  = zeros(4, K);
+        Cs0     = zeros(size(Cs));
         for mc = 1:nReal
             Hm = reshape(Hcs(:, mc, :), [LN, K]);
             Hh = reshape(Hhs(:, mc, :), [LN, K]);
@@ -1006,14 +983,19 @@ parfor ns = 1:nSetups
             mN = mN + nuu;
             mbits = mbits + bpu;
             meng = meng + epu;
-            % ---- [PERFECT-CSI OVERLAY] same IR-cluster detectors, true channel
-            % fed as the estimate, zero error covariance ----
-            if perfect_csi_overlay
+            if csi_study
+                % [CSI STUDY] proper ESTIMATED CSI: NF links genuinely estimated
+                % (NUSW-LMMSE via Hhs_est/Cs_est), FF links LMMSE. Same rate cluster.
+                Hhe = reshape(Hhs_est(:, mc, :), [LN, K]);
+                [a1, a2, a3, a4] = ber_case(Hhe, Hm, Cs_est, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                brt_est = brt_est + [a1; a2; a3; a4];
+                [bue, ~] = metrics_case(Hhe, Hm, Cs_est, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                mB_est = mB_est + bue;
+                % [CSI STUDY] PERFECT CSI: true channel in the combiner, C = 0.
                 [q1, q2, q3, q4] = ber_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
                 brt_pf = brt_pf + [q1; q2; q3; q4];
-                [buu_pf, nuu_pf] = metrics_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
-                mB_pf = mB_pf + buu_pf;
-                mN_pf = mN_pf + nuu_pf;
+                [bup, ~] = metrics_case(Hm, Hm, Cs0, D_BSR_s, p, N, L, K, nSym, M_lst, d_th, maxBr, modOrder);
+                mB_pf = mB_pf + bup;
             end
         end
         eBERhf(:, ns, si) = bhf / max(nbit, 1);
@@ -1023,13 +1005,12 @@ parfor ns = 1:nSetups
         etaXap_acc(ns, si)  = etaXap_run  / max(nReal, 1);   % [NEW]
         mBERrt(:, :, ns, si)  = mB / max(mbits, 1);
         mNMSErt(:, :, ns, si) = mN / max(meng, 1);
-        % [PERFECT-CSI OVERLAY] store genie mirrors (same bit / energy counts)
-        if perfect_csi_overlay
-            eBERrt_pf(:, ns, si)     = brt_pf / max(nbit, 1);
-            mBERrt_pf(:, :, ns, si)  = mB_pf  / max(mbits, 1);
-            mNMSErt_pf(:, :, ns, si) = mN_pf  / max(meng, 1);
-        end
-        Hcs = []; Hhs = []; Cs = []; Nps = [];
+        % [CSI STUDY] unconditional sliced writes (accumulators are zero when off)
+        eBERrt_est(:, ns, si)    = brt_est / max(nbit, 1);
+        eBERrt_pf(:, ns, si)     = brt_pf  / max(nbit, 1);
+        mBERrt_est(:, :, ns, si) = mB_est  / max(mbits, 1);
+        mBERrt_pf(:, :, ns, si)  = mB_pf   / max(mbits, 1);
+        Hcs = []; Hhs = []; Cs = []; Nps = []; Hhs_est = []; Cs_est = [];
 
         %----------------------------------------------------------
         %  [FIGURE 2 EMPIRICAL] Monte-Carlo Linear + Hard-SIC BER
@@ -1073,9 +1054,20 @@ parfor ns = 1:nSetups
                 end
             end
         end
-        % [FIXED: Mashdour WCL 2024] reuse the rate-optimised IR mask (Fig-2
-        % path shares pilots/statistics with the analytical path here).
-        D_RT2 = D_BSR;
+        SRs2 = zeros(L, K);
+        for l = 1:L
+            for k = 1:K
+                gmm = max(real(trace(R2(:, :, l, k))) - real(trace(Cc2(:, :, l, k))), 0);
+                er2 = real(trace(Cc2(:, :, l, k)));
+                SRs2(l, k) = log2(1 + p * gmm / (p * er2 + 1));
+            end
+        end
+        D_RT2 = false(L, K);
+        for k = 1:K
+            [~, rk] = sort(SRs2(:, k), 'descend');
+            szc = max(nnz(D_CN(:, k)), 1);
+            D_RT2(rk(1:szc), k) = true;
+        end
 
         HcF2 = randn(LN, nReal, K) + 1j * randn(LN, nReal, K);
         for l = 1:L
@@ -1105,18 +1097,17 @@ parfor ns = 1:nSetups
         for k = 1:K
             Hc_BS2(:, :, k) = sqrt(0.5) * Rs_BS(:, :, k) * Hc_BS2(:, :, k);
         end
-        % [CENTRALIZED-BS FIX] orthogonal BS pilots (tau_p_BS) for empirical BER
-        Np_BS2 = sqrt(0.5) * (randn(N_BS, nReal, tau_p_BS) + 1j * randn(N_BS, nReal, tau_p_BS));
+        Np_BS2 = sqrt(0.5) * (randn(N_BS, nReal, tau_fig2) + 1j * randn(N_BS, nReal, tau_fig2));
         Hh_BS2 = zeros(N_BS, nReal, K);
         C_BS2 = zeros(N_BS, N_BS, 1, K);
-        for t = 1:tau_p_BS
-            ue_t = find(pilotBS == t)';
-            yp = sqrt(p) * tau_p_BS * sum(Hc_BS2(:, :, ue_t), 3) + sqrt(tau_p_BS) * Np_BS2(:, :, t);
-            Psi_t = p * tau_p_BS * sum(R_BS(:, :, ue_t), 3) + eye(N_BS);
+        for t = 1:tau_fig2
+            ue_t = find(pilotF2 == t)';
+            yp = sqrt(p) * tau_fig2 * sum(Hc_BS2(:, :, ue_t), 3) + sqrt(tau_fig2) * Np_BS2(:, :, t);
+            Psi_t = p * tau_fig2 * sum(R_BS(:, :, ue_t), 3) + eye(N_BS);
             for k = ue_t
                 RPsi = R_BS(:, :, k) / Psi_t;
                 Hh_BS2(:, :, k) = sqrt(p) * RPsi * yp;
-                C_BS2(:, :, 1, k) = R_BS(:, :, k) - p * tau_p_BS * RPsi * R_BS(:, :, k);
+                C_BS2(:, :, 1, k) = R_BS(:, :, k) - p * tau_fig2 * RPsi * R_BS(:, :, k);
             end
         end
 
@@ -1212,6 +1203,10 @@ if nSetups == 1
     aBER2_rt = reshape(eBER2_rt, 2, nSNR);
     mBER_u  = reshape(mBERrt, 4, K, nSNR);
     mNMSE_u = reshape(mNMSErt, 4, K, nSNR);
+    aBERrt_est = reshape(eBERrt_est, 4, nSNR);      % [CSI STUDY]
+    aBERrt_pf  = reshape(eBERrt_pf, 4, nSNR);
+    mBER_u_est = reshape(mBERrt_est, 4, K, nSNR);
+    mBER_u_pf  = reshape(mBERrt_pf, 4, K, nSNR);
 else
     aBERhf = squeeze(mean(eBERhf, 2));
     aBERcn = squeeze(mean(eBERcn, 2));
@@ -1223,19 +1218,10 @@ else
     aBER2_rt = squeeze(mean(eBER2_rt, 2));
     mBER_u  = squeeze(mean(mBERrt, 3));
     mNMSE_u = squeeze(mean(mNMSErt, 3));
-end
-
-% [PERFECT-CSI OVERLAY] average the genie mirrors over setups
-SR_RTcl_lmmse_pf = mean(SR_RTcl_lmmse_pf_acc, 1);
-SR_RTcl_cnsic_pf = mean(SR_RTcl_cnsic_pf_acc, 1);
-if nSetups == 1
-    aBERrt_pf  = reshape(eBERrt_pf, 4, nSNR);
-    mBER_u_pf  = reshape(mBERrt_pf, 4, K, nSNR);
-    mNMSE_u_pf = reshape(mNMSErt_pf, 4, K, nSNR);
-else
+    aBERrt_est = squeeze(mean(eBERrt_est, 2));      % [CSI STUDY]
     aBERrt_pf  = squeeze(mean(eBERrt_pf, 2));
+    mBER_u_est = squeeze(mean(mBERrt_est, 3));
     mBER_u_pf  = squeeze(mean(mBERrt_pf, 3));
-    mNMSE_u_pf = squeeze(mean(mNMSErt_pf, 3));
 end
 
 
@@ -1248,6 +1234,15 @@ for si = 1:nSNR
         gk = prelog * bits_sym * (1 - squeeze(mBER_u(d, :, si)));
         SE_det(d, si)   = sum(gk);
         NMSE_det(d, si) = mean(squeeze(mNMSE_u(d, :, si)));
+    end
+end
+
+% [CSI STUDY] goodput sum-rate of the 4 detectors under estimated and perfect CSI
+SE_det_est = zeros(4, nSNR);   SE_det_pf = zeros(4, nSNR);
+for si = 1:nSNR
+    for d = 1:4
+        SE_det_est(d, si) = sum(prelog * bits_sym * (1 - squeeze(mBER_u_est(d, :, si))));
+        SE_det_pf(d, si)  = sum(prelog * bits_sym * (1 - squeeze(mBER_u_pf(d, :, si))));
     end
 end
 
@@ -1294,27 +1289,6 @@ seSamp = cell(4, 1);
 for d = 1:4
     berk = squeeze(mBERrt(d, :, :, si_cdf));
     seSamp{d} = prelog * bits_sym * (1 - berk(:));
-end
-
-% [PERFECT-CSI OVERLAY] derived genie metrics for the figure overlays
-if perfect_csi_overlay
-    SE_det_pf    = zeros(4, nSNR);
-    NMSE_det_pf  = zeros(4, nSNR);
-    SEeff_det_pf = zeros(4, nSNR);
-    for si = 1:nSNR
-        for d = 1:4
-            gk = prelog * bits_sym * (1 - squeeze(mBER_u_pf(d, :, si)));
-            SE_det_pf(d, si)   = sum(gk);
-            NMSE_det_pf(d, si) = mean(squeeze(mNMSE_u_pf(d, :, si)));
-            nk = max(squeeze(mNMSE_u_pf(d, :, si)), nmseFloor);
-            SEeff_det_pf(d, si) = sum(prelog * log2(1 + 1 ./ nk));
-        end
-    end
-    seSamp_pf = cell(4, 1);
-    for d = 1:4
-        berk = squeeze(mBERrt_pf(d, :, :, si_cdf));
-        seSamp_pf{d} = prelog * bits_sym * (1 - berk(:));
-    end
 end
 
 %% ====================================================================
@@ -1634,62 +1608,6 @@ legend('Location', 'northwest', 'FontSize', 8, 'NumColumns', 2);
 set(gca, 'XTick', xt);
 
 %% ====================================================================
-%  FIGURE 4B [NEW] - CLUSTERING JUSTIFICATION: information-rate (IR) vs
-%  channel-norm (CN) clustering.
-%
-%  Sole purpose: show WHY IR clustering beats CN clustering, the way the
-%  literature justifies it (Mashdour et al., IEEE WCL 2024; the paper reports
-%  sum-rate AND a per-user rate CDF for fairness). CN ranks APs by channel
-%  energy only; IR ranks them by the achievable rate after the local combiner,
-%  which penalises APs that also serve a user's co-pilot partner. The two
-%  panels are the standard evidence:
-%   LEFT  : sum-rate vs SNR, CN vs IR (L-MMSE and SIC). IR sits above CN.
-%   RIGHT : CDF of per-user rate at the reference SNR. IR shifts the whole
-%           distribution right, and lifts the 5%% (cell-edge) point the most
-%           -- the fairness gain that motivates information-rate clustering.
-%  If the two curves still coincide, the contamination regime is too weak for
-%  clustering to matter (raise the co-pilot load); that is a real finding, not
-%  a plotting artefact.
-%% ====================================================================
-figure('Name', 'Clustering-Justification-IRvsCN', 'Position', [60 90 1180 520]);
-
-% ---- LEFT: sum-rate separation vs SNR ----
-subplot(1, 2, 1);
-hold on; box on; grid on;
-plot(SNR_dB, SR_CNcl_lmmse, '--o', 'Color', cCN, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'CN cluster: L-MMSE');
-plot(SNR_dB, SR_CNcl_cnsic, '--s', 'Color', cCN, 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'CN cluster: SIC');
-plot(SNR_dB, SR_RTcl_lmmse, '-^', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'IR cluster: L-MMSE');
-plot(SNR_dB, SR_RTcl_cnsic, '-d', 'Color', cRT, 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'IR cluster: SIC (proposed metric)');
-xlabel('SNR [dB]', 'FontSize', 12);
-ylabel('Sum-rate [bps/Hz]', 'FontSize', 12);
-gain_ref = 100 * (SR_RTcl_cnsic(snr_ref_idx) - SR_CNcl_cnsic(snr_ref_idx)) / max(SR_CNcl_cnsic(snr_ref_idx), eps);
-title(sprintf('IR vs CN clustering: sum-rate\nIR gain @ %d dB = %.1f%% (SIC)', SNR_dB(snr_ref_idx), gain_ref), 'FontSize', 11);
-legend('Location', 'northwest', 'FontSize', 9);
-set(gca, 'XTick', xt);
-
-% ---- RIGHT: per-user rate CDF at the reference SNR ----
-subplot(1, 2, 2);
-hold on; box on; grid on;
-xcn = sort(seU_CN_acc(:));
-xrt = sort(seU_RT_acc(:));
-ycn = (1:numel(xcn))' / numel(xcn);
-yrt = (1:numel(xrt))' / numel(xrt);
-plot(xcn, ycn, '--', 'Color', cCN, 'LineWidth', lw + 0.7, 'DisplayName', 'CN cluster');
-plot(xrt, yrt, '-',  'Color', cRT, 'LineWidth', lw + 0.7, 'DisplayName', 'IR cluster (proposed)');
-% 5% (cell-edge) markers
-e_cn = xcn(max(1, round(0.05 * numel(xcn))));
-e_rt = xrt(max(1, round(0.05 * numel(xrt))));
-yline(0.05, ':k', 'LineWidth', 1.0, 'HandleVisibility', 'off');
-plot(e_cn, 0.05, 'o', 'Color', cCN, 'MarkerFaceColor', cCN, 'MarkerSize', ms, 'HandleVisibility', 'off');
-plot(e_rt, 0.05, 'd', 'Color', cRT, 'MarkerFaceColor', cRT, 'MarkerSize', ms, 'HandleVisibility', 'off');
-xlabel('Per-user rate [bps/Hz]', 'FontSize', 12);
-ylabel('CDF', 'FontSize', 12);
-title(sprintf('Per-user rate CDF @ %d dB\n5%%-edge: CN=%.2f, IR=%.2f bps/Hz', SNR_dB(snr_ref_idx), e_cn, e_rt), 'FontSize', 11);
-legend('Location', 'southeast', 'FontSize', 9);
-ylim([0 1]);
-sgtitle('Justification: information-rate clustering outperforms channel-norm clustering', 'FontSize', 12);
-
-%% ====================================================================
 %  FIGURE 5 - EMPIRICAL BER with LIST detection  [UNCHANGED]
 %% ====================================================================
 figure('Name', 'BER-List', 'Position', [940 620 940 580]);
@@ -1703,13 +1621,6 @@ semilogy(SNR_dB, max(aBERrt(1, :), flr), ':o', 'Color', cRT, 'LineWidth', lw, 'M
 semilogy(SNR_dB, max(aBERrt(2, :), flr), ':s', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: SIC');
 semilogy(SNR_dB, max(aBERrt(3, :), flr), ':^', 'Color', [0 0.35 0], 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: List-SIC');
 semilogy(SNR_dB, max(aBERrt(4, :), flr), ':d', 'Color', [0 0.20 0], 'LineWidth', lw + 1.0, 'MarkerSize', ms + 1, 'DisplayName', 'Rate-Cluster: List+CrossAP (proposed)');
-% [PERFECT-CSI OVERLAY] 4 dashed IR-cluster curves with perfect CSI
-if perfect_csi_overlay
-    semilogy(SNR_dB, max(aBERrt_pf(1, :), flr), '--o', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: Linear (perfect CSI)');
-    semilogy(SNR_dB, max(aBERrt_pf(2, :), flr), '--s', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: SIC (perfect CSI)');
-    semilogy(SNR_dB, max(aBERrt_pf(3, :), flr), '--^', 'Color', [0 0.35 0], 'LineWidth', lw + 0.5, 'MarkerSize', ms, 'DisplayName', 'Rate-Cluster: List-SIC (perfect CSI)');
-    semilogy(SNR_dB, max(aBERrt_pf(4, :), flr), '--d', 'Color', [0 0.20 0], 'LineWidth', lw + 1.0, 'MarkerSize', ms + 1, 'DisplayName', 'Rate-Cluster: List+CrossAP (perfect CSI)');
-end
 box on;
 grid on;
 set(gca, 'YMinorGrid', 'on');
@@ -1733,13 +1644,6 @@ for d = 1:4
     plot(SNR_dB, SE_det(d, :), mk{d}, 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
          'MarkerSize', ms, 'DisplayName', nmDet{d});
 end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie SE curves
-    for d = 1:4
-        plot(SNR_dB, SE_det_pf(d, :), ['--' mk{d}(end)], 'Color', cDet{d}, ...
-             'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
-             'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
-end
 xlabel('SNR [dB]', 'FontSize', 13);
 ylabel('Effective spectral efficiency [bps/Hz]', 'FontSize', 13);
 title(sprintf('Effective SE (goodput) vs detector -- IR clustering, hybrid NF/FF\nSE_k=prelog\\cdotlog_2(M)\\cdot(1-BER_k), M=%d, L=%d K=%d N=%d', modOrder, L, K, N), 'FontSize', 11);
@@ -1755,13 +1659,6 @@ set(gca, 'YScale', 'log');
 for d = 1:4
     semilogy(SNR_dB, max(NMSE_det(d, :), 1e-6), mk{d}, 'Color', cDet{d}, ...
              'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
-end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie NMSE curves
-    for d = 1:4
-        semilogy(SNR_dB, max(NMSE_det_pf(d, :), 1e-6), ['--' mk{d}(end)], 'Color', cDet{d}, ...
-                 'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
-                 'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
 end
 set(gca, 'YMinorGrid', 'on');
 xlabel('SNR [dB]', 'FontSize', 13);
@@ -1781,15 +1678,6 @@ for d = 1:4
     plot(xs, cdfv, mk{d}, 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
          'MarkerSize', ms - 1, 'MarkerIndices', 1:max(1, round(numel(xs) / 12)):numel(xs), ...
          'DisplayName', nmDet{d});
-end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie CDF curves
-    for d = 1:4
-        xsp = sort(seSamp_pf{d});
-        cdfp = (1:numel(xsp))' / numel(xsp);
-        plot(xsp, cdfp, ['--' mk{d}(end)], 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
-             'MarkerSize', ms - 1, 'MarkerIndices', 1:max(1, round(numel(xsp) / 12)):numel(xsp), ...
-             'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
 end
 xlabel('Per-user effective SE [bps/Hz]', 'FontSize', 12);
 ylabel('CDF', 'FontSize', 12);
@@ -1814,13 +1702,6 @@ for d = 1:4
     plot(SNR_dB, SE_det(d, :), mk{d}, 'Color', cDet{d}, ...
          'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
 end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] dashed genie goodput
-    for d = 1:4
-        plot(SNR_dB, SE_det_pf(d, :), ['--' mk{d}(end)], 'Color', cDet{d}, ...
-             'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
-             'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
-end
 yline(K * prelog * log2(modOrder), '--k', 'LineWidth', 1.2, ...
       'DisplayName', 'Alphabet bound K\cdotprelog\cdotlog_2(M)');
 xlabel('SNR [dB]', 'FontSize', 12);
@@ -1834,13 +1715,6 @@ hold on; box on; grid on;
 for d = 1:4
     plot(SNR_dB, SEeff_det(d, :), mk{d}, 'Color', cDet{d}, ...
          'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
-end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] dashed genie effective-SINR rate
-    for d = 1:4
-        plot(SNR_dB, SEeff_det_pf(d, :), ['--' mk{d}(end)], 'Color', cDet{d}, ...
-             'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
-             'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
 end
 yline(K * prelog * log2(1 + nSymTot), ':k', 'LineWidth', 1.2, ...
       'DisplayName', 'NMSE measurement floor');
@@ -1876,13 +1750,6 @@ hold on; box on; grid on;
 for d = 1:4
     semilogy(SNR_dB, max(aBERrt(d, :), 1e-6), mk{d}, 'Color', cDet{d}, ...
              'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
-end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie BER curves
-    for d = 1:4
-        semilogy(SNR_dB, max(aBERrt_pf(d, :), 1e-6), ['--' mk{d}(end)], 'Color', cDet{d}, ...
-                 'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
-                 'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
 end
 set(gca, 'YScale', 'log', 'XTick', xt);
 xlabel('SNR [dB]', 'FontSize', 12);
@@ -1968,21 +1835,6 @@ plot(SNR_dB(idxB), SR_ana_list(idxB), '^', 'Color', cDet{3}, 'LineWidth', lw, ..
      'MarkerSize', ms + 1, 'DisplayName', 'IR-Cluster: List-SIC');
 plot(SNR_dB(idxC), SR_ana_xap(idxC),  'd', 'Color', cDet{4}, 'LineWidth', lw, ...
      'MarkerSize', ms + 1, 'DisplayName', 'IR-Cluster: List+CrossAP (proposed)');
-
-% [PERFECT-CSI OVERLAY] genie analytical rate: Linear (separate) + coincident
-% SIC family (one dashed line, three staggered marker sets).
-if perfect_csi_overlay
-    plot(SNR_dB, SR_RTcl_lmmse_pf, '--o', 'Color', cDet{1}, 'LineWidth', lw, ...
-         'MarkerSize', ms, 'DisplayName', 'Linear (L-MMSE) (perfect CSI)');
-    plot(SNR_dB, SR_RTcl_cnsic_pf, '--', 'Color', [0.35 0.35 0.35], 'LineWidth', lw + 0.5, ...
-         'HandleVisibility', 'off');
-    plot(SNR_dB(idxA), SR_RTcl_cnsic_pf(idxA), 's', 'Color', cDet{2}, 'LineWidth', lw, ...
-         'MarkerSize', ms, 'DisplayName', 'Hard-SIC (perfect CSI)');
-    plot(SNR_dB(idxB), SR_RTcl_cnsic_pf(idxB), '^', 'Color', cDet{3}, 'LineWidth', lw, ...
-         'MarkerSize', ms + 1, 'DisplayName', 'List-SIC (perfect CSI)');
-    plot(SNR_dB(idxC), SR_RTcl_cnsic_pf(idxC), 'd', 'Color', cDet{4}, 'LineWidth', lw, ...
-         'MarkerSize', ms + 1, 'DisplayName', 'List+CrossAP (perfect CSI)');
-end
 
 set(gca, 'XTick', xt);
 xlabel('SNR [dB]', 'FontSize', 12);
@@ -2184,13 +2036,6 @@ for d = 1:4
     semilogy(SNR_dB, max(aBERrt(d, :), 1e-6), mk{d}, 'Color', cDet{d}, ...
              'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, 'DisplayName', nmDet{d});
 end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie BER curves
-    for d = 1:4
-        semilogy(SNR_dB, max(aBERrt_pf(d, :), 1e-6), ['--' mk{d}(end)], 'Color', cDet{d}, ...
-                 'LineWidth', lw + 0.3 * (d >= 3), 'MarkerSize', ms, ...
-                 'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
-end
 set(gca, 'YScale', 'log', 'XTick', xt);
 xlabel('SNR [dB]', 'FontSize', 12);
 ylabel('BER', 'FontSize', 12);
@@ -2207,15 +2052,6 @@ for d = 1:4
     plot(xs, cdfv, mk{d}, 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
          'MarkerSize', ms - 1, 'MarkerIndices', 1:max(1, round(numel(xs) / 12)):numel(xs), ...
          'DisplayName', nmDet{d});
-end
-if perfect_csi_overlay   % [PERFECT-CSI OVERLAY] 4 dashed genie CDF curves
-    for d = 1:4
-        xsp = sort(seSamp_pf{d});
-        cdfp = (1:numel(xsp))' / numel(xsp);
-        plot(xsp, cdfp, ['--' mk{d}(end)], 'Color', cDet{d}, 'LineWidth', lw + 0.3 * (d >= 3), ...
-             'MarkerSize', ms - 1, 'MarkerIndices', 1:max(1, round(numel(xsp) / 12)):numel(xsp), ...
-             'DisplayName', [nmDet{d} ' (perfect CSI)']);
-    end
 end
 xlabel('Per-user effective SE [bps/Hz]', 'FontSize', 12);
 ylabel('CDF', 'FontSize', 12);
@@ -2262,323 +2098,55 @@ title(sprintf('Detector complexity vs K  (L=%d, N=%d)', L, N), 'FontSize', 11);
 legend('Location', 'northwest', 'FontSize', 9);
 
 %% ====================================================================
-%  SPARSE-ARRAY STUDY  [curated: only the figures that justify a sparse
-%  array in this hybrid near-field / far-field cell-free XL-MIMO system]
-%
-%  Exact array physics: array factors + non-uniform spherical-wave (NUSW)
-%  near-field steering. No proxy / no curve fitting. See the companion PDF
-%  (sparse_array_justification.pdf) for theory, equations and references.
-%
-%  Figures (set sparse_study = false to skip the whole section):
-%    S1  Antenna / complexity reduction at equal near-field distance   [hardware benefit]
-%    S2  Near-field link fraction vs sparsening on THIS deployment      [relevance]
-%    S3  Collinear-user SINR, {far,near} x {dense,sparse}               [detection benefit]
-%    S4  Grating-lobe cost and its near-field range-selective mitigation[honest cost]
-%    S5  Cross-AP combining vs the per-AP grating lobe                  [novel result]
-%    MECH (optional) 2D near-field focusing pattern (angle x range)     [mechanism visual]
-%
-%  Refs: Wu & Zeng, arXiv:2305.05408; sparse-EDoF, arXiv:2501.09234; sparse
-%  interference suppression, arXiv:2408.01956; NF tutorial, arXiv:2310.11044;
-%  reconfigurable thinning, arXiv:2602.21973; quasi-distributed MRA, 2607.29341.
+%  NEW FIGURE A [CSI STUDY] - BER of all four detectors: ESTIMATED vs PERFECT
+%  Hybrid NF/FF: near-field links use the NUSW near-field LMMSE estimate, far-
+%  field links the standard LMMSE estimate; perfect CSI is the genie upper bound
+%  (true channel, zero error covariance). Solid = estimated, dashed = perfect.
 %% ====================================================================
-sparse_study   = true;     % master switch for the entire sparse-array section
-show_mechanism = false;    % also draw the 2D near-field focusing pattern (optional)
-if sparse_study
-    d0   = lambda/2;  Nsp = N;  Qsp = 4;             % sparse spacing = Qsp*(lambda/2)
-    posD = ((0:Nsp-1).' - (Nsp-1)/2) * d0;           % dense ULA (lambda/2)
-    posU = ((0:Nsp-1).' - (Nsp-1)/2) * (Qsp*d0);     % uniform sparse (Qsp x aperture)
-    cSpD = [0 0.45 0.74];  cSpU = [0.85 0.33 0.10];  cSpN = [0.20 0.45 0.20];
-    r0sp = min(0.15*d_Ray, 25);                      % near-field focal range [m]
-    ff = @(pp,s)   exp(1j*2*pi/lambda * pp * s);                                   % far-field steering
-    nf = @(pp,r,s) (r./sqrt(r^2+pp.^2-2*r*pp*s)) .* exp(-1j*2*pi*sqrt(r^2+pp.^2-2*r*pp*s)/lambda); % NUSW
-    gn = @(a,b) abs(a'*b)/(norm(a)*norm(b));                                       % normalized beam gain
-    fprintf('\n===== SPARSE-ARRAY STUDY (N=%d, sparse spacing = %dx lambda/2) =====\n', Nsp, Qsp);
-
-    % =================== S1: antenna / complexity reduction ===================
-    %  d_Ray = 2 D^2 / lambda depends on APERTURE, not element count, so a sparse
-    %  array reaches the SAME near-field distance with far fewer antennas.
-    dRay_target = d_Ray;                             % current N=64, lambda/2 system
-    Nsweep = 8:2:96;
-    dRay_half = 2*((Nsweep-1)*d0).^2/lambda;
-    dRay_sp   = 2*((Nsweep-1)*Qsp*d0).^2/lambda;
-    ssw   = 1:0.5:6;                                 % sparsening factor s
-    Nneed = 1 + sqrt(dRay_target*lambda/2) ./ (ssw*d0);   % antennas for the SAME d_Ray
-    Ns4   = interp1(ssw, Nneed, Qsp);
-    figure('Name', 'S1-Antenna-Reduction', 'Position', [40 40 1180 500]);
-    subplot(1,2,1); hold on; box on; grid on;
-    plot(Nsweep, dRay_half, '-o', 'Color', cSpD, 'LineWidth', 1.9, 'MarkerSize', 5, 'DisplayName', '\lambda/2 spacing (dense)');
-    plot(Nsweep, dRay_sp,   '-d', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 5, 'DisplayName', sprintf('%dx\\lambda/2 spacing (sparse)', Qsp));
-    yline(dRay_target, '--k', 'LineWidth', 1.3, 'DisplayName', sprintf('target d_{Ray}=%.0fm', dRay_target));
-    xlabel('Number of antennas N', 'FontSize', 12); ylabel('Rayleigh distance d_{Ray} [m]', 'FontSize', 12);
-    title('Near-field distance vs antenna count', 'FontSize', 11);
-    legend('Location', 'northwest', 'FontSize', 9);
-    subplot(1,2,2); hold on; box on; grid on;
-    plot(ssw, Nneed, '-o', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 6, 'DisplayName', 'antennas for equal d_{Ray}');
-    plot(1, N, 'p', 'Color', cSpD, 'MarkerFaceColor', cSpD, 'MarkerSize', 12, 'DisplayName', sprintf('current (N=%d)', N));
-    xlabel('Sparsening factor s (spacing = s\cdot\lambda/2)', 'FontSize', 12);
-    ylabel('Antennas N for the same d_{Ray}', 'FontSize', 12);
-    title(sprintf('Antenna reduction: s=%d -> N=%.0f (%.0f%% fewer)', Qsp, Ns4, 100*(1-Ns4/N)), 'FontSize', 11);
-    legend('Location', 'northeast', 'FontSize', 9);
-    fprintf('[Sparse] S1: equal d_Ray=%.0fm needs N=%.0f at s=%d vs N=%d at lambda/2  (%.0f%% fewer antennas)\n', ...
-            dRay_target, Ns4, Qsp, N, 100*(1-Ns4/N));
-
-    % =============== S2: near-field link fraction vs sparsening ===============
-    %  For THIS 300m deployment: as the aperture grows with s, d_Ray(s)=s^2 d_Ray,
-    %  so more user-AP links become near-field -- where the Cross-AP detector gains.
-    ssw2   = 1:0.5:6;   nDrop2 = 300;
-    dRayS  = (ssw2.^2) * d_Ray;
-    rmaxNF = min(0.9*d_Ray, squareLen/2);
-    npair2 = floor(K/4);
-    rs2    = RandStream('mt19937ar', 'Seed', 11);
-    wsh    = squareLen * [-1 0 1];
-    allD2  = zeros(nDrop2, L*K);
-    for dd = 1:nDrop2
-        ap = (rand(rs2, L, 1) + 1j*rand(rs2, L, 1)) * squareLen;
-        ue = zeros(K, 1);  ui = 1;
-        for pr = 1:npair2
-            al = mod(pr-1, L) + 1;  ph = 2*pi*rand(rs2);
-            rn = 20 + (rmaxNF/2 - 20)*rand(rs2);   rf = rmaxNF/2 + (rmaxNF/2)*rand(rs2);
-            ue(ui) = ap(al) + rn*exp(1j*ph);  ue(ui+1) = ap(al) + rf*exp(1j*ph);  ui = ui + 2;
-        end
-        arr = 1;
-        while ui <= K
-            r = 20 + (rmaxNF - 20)*rand(rs2);  ph = 2*pi*rand(rs2);
-            ue(ui) = ap(arr) + r*exp(1j*ph);  ui = ui + 1;  arr = mod(arr, L) + 1;
-        end
-        c = 1;
-        for l = 1:L
-            for k = 1:K
-                dxy = inf;
-                for a = wsh
-                    for b = wsh
-                        dxy = min(dxy, abs((ap(l) + a + 1j*b) - ue(k)));
-                    end
-                end
-                allD2(dd, c) = sqrt(hDiff^2 + dxy^2);  c = c + 1;
-            end
-        end
-    end
-    nfFrac = zeros(size(ssw2));
-    for is = 1:numel(ssw2), nfFrac(is) = 100 * mean(allD2(:) < dRayS(is)); end
-    figure('Name', 'S2-NearField-LinkFraction', 'Position', [60 60 860 500]);
-    yyaxis left;  hold on; box on; grid on;
-    plot(ssw2, nfFrac, '-o', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 6);
-    ylabel('Near-field links [% of L\cdotK]', 'FontSize', 12);  ylim([0 100]);
-    yyaxis right;  plot(ssw2, dRayS, '--', 'Color', [0.4 0.4 0.4], 'LineWidth', 1.6);
-    ylabel('d_{Ray}(s) [m]', 'FontSize', 12);
-    xlabel('Sparsening factor s (spacing = s\cdot\lambda/2)', 'FontSize', 12);
-    title(sprintf('Near-field link fraction vs sparsening (%dx%dm, N=%d)\ns=1: %.0f%%  ->  s=4: %.0f%%', ...
-          squareLen, squareLen, N, nfFrac(1), interp1(ssw2, nfFrac, 4)), 'FontSize', 11);
-    fprintf('[Sparse] S2: near-field link fraction  s=1: %.0f%%  s=2: %.0f%%  s=4: %.0f%%\n', ...
-            nfFrac(1), interp1(ssw2,nfFrac,2), interp1(ssw2,nfFrac,4));
-
-    % ============== S3: collinear-user SINR {far,near}x{dense,sparse} =========
-    %  One AP separates a desired user from a collinear interferer (same angle,
-    %  Delta r = 2m). Far-field: identical steering -> unseparable at any SNR.
-    %  Near-field: spherical wavefront + large sparse aperture -> separable.
-    sinth = 0.2;  r1c = r0sp;  r2c = r0sp + 2;
-    sinrdb = @(h1,h2,pw) 10*log10(real(pw * h1' * ((pw*(h2*h2') + eye(Nsp)) \ h1)));
-    snrSp = 0:2:30;
-    sFFd = zeros(size(snrSp)); sFFs = zeros(size(snrSp));
-    sNFd = zeros(size(snrSp)); sNFs = zeros(size(snrSp));
-    for ii = 1:numel(snrSp)
-        pw = 10^(snrSp(ii)/10);
-        sFFd(ii) = sinrdb(ff(posD, sinth),      ff(posD, sinth),      pw);
-        sFFs(ii) = sinrdb(ff(posU, sinth),      ff(posU, sinth),      pw);
-        sNFd(ii) = sinrdb(nf(posD, r1c, sinth), nf(posD, r2c, sinth), pw);
-        sNFs(ii) = sinrdb(nf(posU, r1c, sinth), nf(posU, r2c, sinth), pw);
-    end
-    figure('Name', 'S3-Collinear-SINR', 'Position', [80 40 880 520]);
+if csi_study
+    cDcsi = {[0.85 0.10 0.10], [0.55 0 0], [0.20 0.20 0.75], [0.30 0 0]};
+    mkcsi = {'o', 's', '^', 'd'};
+    nmcsi = {'Linear (L-MMSE)', 'SIC', 'List-SIC', 'List+CrossAP (proposed)'};
+    flrC  = 1e-6;
+    figure('Name', 'CSI-BER-Perfect-vs-Estimated', 'Position', [50 70 960 640]);
     hold on; box on; grid on;
-    plot(snrSp, sFFd, '-o', 'Color', cSpD, 'LineWidth', 1.8, 'MarkerSize', 5, 'DisplayName', 'Far-field, dense');
-    plot(snrSp, sFFs, '-s', 'Color', cSpU, 'LineWidth', 1.8, 'MarkerSize', 5, 'DisplayName', 'Far-field, sparse');
-    plot(snrSp, sNFd, '-^', 'Color', [0.20 0.55 0.20], 'LineWidth', 1.8, 'MarkerSize', 5, 'DisplayName', 'Near-field, dense');
-    plot(snrSp, sNFs, '-d', 'Color', cSpN, 'LineWidth', 2.2, 'MarkerSize', 6, 'DisplayName', 'Near-field, sparse (proposed)');
-    xlabel('SNR [dB]', 'FontSize', 12); ylabel('Desired-user post-MMSE SINR [dB]', 'FontSize', 12);
-    title(sprintf('Collinear-user separation (N=%d, \\Deltar=2m, same angle)', Nsp), 'FontSize', 11);
-    legend('Location', 'northwest', 'FontSize', 9);
-    fprintf('[Sparse] S3: SINR at 30dB  FF-dense=%.1f  FF-sparse=%.1f  NF-dense=%.1f  NF-sparse=%.1f dB\n', ...
-            sFFd(end), sFFs(end), sNFd(end), sNFs(end));
-
-    % =========== S4: grating-lobe cost + near-field range-selectivity =========
-    angs = linspace(-pi/2, pi/2, 1001);  sgr = sin(angs);  angd = rad2deg(angs);  s0sp = 0;
-    GffU = 20*log10(max(arrayfun(@(s) gn(ff(posU,s),      ff(posU,s0sp)),      sgr), 1e-6));
-    GnfU = 20*log10(max(arrayfun(@(s) gn(nf(posU,r0sp,s), nf(posU,r0sp,s0sp)), sgr), 1e-6));
-    GnfD = 20*log10(max(arrayfun(@(s) gn(nf(posD,r0sp,s), nf(posD,r0sp,s0sp)), sgr), 1e-6));
-    mainMask = abs(angd) > 8;
-    glFF = max(GffU(mainMask));  glNF = max(GnfU(mainMask));
-    qsw  = 1:0.25:Qsp;  glFFv = zeros(size(qsw));  glNFv = zeros(size(qsw));
-    for iq = 1:numel(qsw)
-        pp = ((0:Nsp-1).' - (Nsp-1)/2) * (qsw(iq)*d0);
-        gff = 20*log10(max(arrayfun(@(s) gn(ff(pp,s),      ff(pp,s0sp)),      sgr), 1e-6));
-        gnf = 20*log10(max(arrayfun(@(s) gn(nf(pp,r0sp,s), nf(pp,r0sp,s0sp)), sgr), 1e-6));
-        glFFv(iq) = max(gff(mainMask));  glNFv(iq) = max(gnf(mainMask));
+    hEst = gobjects(1, 4);
+    for d = 1:4
+        hEst(d) = semilogy(SNR_dB, max(aBERrt_est(d, :), flrC), ['-' mkcsi{d}], 'Color', cDcsi{d}, ...
+            'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nmcsi{d} ' - estimated CSI']);
     end
-    figure('Name', 'S4-GratingLobe-Cost-and-Mitigation', 'Position', [40 40 1180 500]);
-    subplot(1,2,1); hold on; box on; grid on;
-    plot(angd, GffU, '-',  'Color', cSpU, 'LineWidth', 2.0, 'DisplayName', 'Sparse, far-field (grating lobes)');
-    plot(angd, GnfU, '-',  'Color', cSpN, 'LineWidth', 2.2, 'DisplayName', 'Sparse, near-field (range-selective)');
-    plot(angd, GnfD, '--', 'Color', cSpD, 'LineWidth', 1.4, 'DisplayName', 'Dense, near-field (reference)');
-    xlabel('Angle [deg]', 'FontSize', 12); ylabel('Normalized beam gain [dB]', 'FontSize', 12);
-    xlim([-90 90]); ylim([-30 1]);
-    title(sprintf('Grating lobes at s=%d: far-field vs near-field (r_0=%.0fm)', Qsp, r0sp), 'FontSize', 11);
-    legend('Location', 'south', 'FontSize', 8);
-    subplot(1,2,2); hold on; box on; grid on;
-    plot(qsw*0.5, glFFv, '-o', 'Color', cSpU, 'LineWidth', 1.9, 'MarkerSize', 6, 'DisplayName', 'Far-field model');
-    plot(qsw*0.5, glNFv, '-d', 'Color', cSpN, 'LineWidth', 2.1, 'MarkerSize', 6, 'DisplayName', 'Near-field model');
-    xlabel('Element spacing d/\lambda', 'FontSize', 12); ylabel('Peak grating-lobe level [dB below main]', 'FontSize', 12);
-    title('Grating-lobe level vs spacing', 'FontSize', 11);
-    legend('Location', 'northwest', 'FontSize', 9);
-    fprintf('[Sparse] S4: peak grating-lobe at s=%d  far-field=%.1f dB  near-field=%.1f dB  (%.1f dB range-selective mitigation)\n', ...
-            Qsp, glFF, glNF, glFF - glNF);
-
-    % ============= S5: cross-AP combining vs the per-AP grating lobe ==========
-    %  AP#1 at the origin (array along x). Desired user at AP#1 broadside (near
-    %  field); interferer parked on AP#1's grating angle (sin = 2/Qsp), where
-    %  AP#1's sparse array cannot null it. The other L-1 APs see the interferer
-    %  at ordinary angles. Desired SINR: AP#1 alone vs cross-AP LSFD fusion.
-    steerAll = @(pos,dz) (abs(dz) ./ sqrt(abs(dz).^2 + pos.^2 - 2*pos*real(dz))) ...
-                         .* exp(-1j*2*pi*sqrt(abs(dz).^2 + pos.^2 - 2*pos*real(dz)) / lambda);
-    rdes = 25;  rint = 30;  zdes = 1j*rdes;
-    sgl  = 2/Qsp;  zint = rint*sgl + 1j*rint*sqrt(1 - sgl^2);
-    rs5  = RandStream('mt19937ar', 'Seed', 23);
-    zAP  = [0; (rand(rs5, L-1, 1)*2 - 1)*90 + 1j*(rand(rs5, L-1, 1)*140 - 20)];
-    snr5 = 0:2:30;
-    Sd1 = zeros(size(snr5)); Sdf = zeros(size(snr5));
-    Ss1 = zeros(size(snr5)); Ssf = zeros(size(snr5));
-    for ii = 1:numel(snr5)
-        pw = 10^(snr5(ii)/10);  pd = pw;  pint = pw;
-        for variant = 1:2
-            if variant == 1, pos = posD; else, pos = posU; end
-            gd = zeros(L,1);  gi = zeros(L,1);  nv = zeros(L,1);  s1 = 0;
-            for l = 1:L
-                ad = steerAll(pos, zdes - zAP(l));
-                ai = steerAll(pos, zint - zAP(l));
-                v  = (pint*(ai*ai') + eye(Nsp)) \ ad;
-                gd(l) = v'*ad;  gi(l) = v'*ai;  nv(l) = real(v'*v);
-                if l == 1, s1 = pd*abs(gd(1))^2 / (pint*abs(gi(1))^2 + nv(1)); end
-            end
-            sf = pd * real(gd' * ((pint*(gi*gi') + diag(nv)) \ gd));
-            if variant == 1, Sd1(ii) = 10*log10(s1); Sdf(ii) = 10*log10(sf);
-            else,            Ss1(ii) = 10*log10(s1); Ssf(ii) = 10*log10(sf); end
-        end
+    for d = 1:4
+        semilogy(SNR_dB, max(aBERrt_pf(d, :), flrC), ['--' mkcsi{d}], 'Color', cDcsi{d}, ...
+            'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nmcsi{d} ' - perfect CSI']);
     end
-    figure('Name', 'S5-CrossAP-GratingLobe', 'Position', [80 40 900 520]);
+    set(gca, 'YScale', 'log', 'YMinorGrid', 'on', 'XTick', SNR_dB);
+    xlim([SNR_dB(1) SNR_dB(end)]); ylim([1e-5 1]);
+    xlabel('SNR [dB]', 'FontSize', 13); ylabel('Empirical BER (16-QAM)', 'FontSize', 13);
+    title(sprintf('BER of all detectors: estimated vs perfect CSI (hybrid NF/FF)\nNF links: near-field (NUSW) LMMSE;  FF links: LMMSE;  \\tau_{sym}=%d', tau_sym), 'FontSize', 11);
+    legend('Location', 'southwest', 'FontSize', 8, 'NumColumns', 2);
+
+    %% ================================================================
+    %  NEW FIGURE B [CSI STUDY] - SUM-RATE of all four detectors: EST vs PERFECT
+    %% ================================================================
+    figure('Name', 'CSI-SumRate-Perfect-vs-Estimated', 'Position', [80 50 960 640]);
     hold on; box on; grid on;
-    plot(snr5, Sd1, '--o', 'Color', cSpD, 'LineWidth', 1.7, 'MarkerSize', 5, 'DisplayName', 'Dense, AP#1 alone');
-    plot(snr5, Ss1, '--s', 'Color', cSpU, 'LineWidth', 1.7, 'MarkerSize', 5, 'DisplayName', 'Sparse, AP#1 alone (grating angle)');
-    plot(snr5, Sdf, '-o',  'Color', cSpD, 'LineWidth', 2.1, 'MarkerSize', 6, 'DisplayName', 'Dense, cross-AP fused');
-    plot(snr5, Ssf, '-d',  'Color', cSpN, 'LineWidth', 2.3, 'MarkerSize', 6, 'DisplayName', 'Sparse, cross-AP fused');
-    xlabel('SNR [dB]', 'FontSize', 12); ylabel('Desired-user SINR [dB]', 'FontSize', 12);
-    title(sprintf('Cross-AP fusion vs per-AP grating lobe (L=%d, N=%d, sin=%.2f)', L, Nsp, sgl), 'FontSize', 11);
-    legend('Location', 'northwest', 'FontSize', 9);
-    fprintf('[Sparse] S5 @ %ddB: AP#1-alone dense=%.1f sparse=%.1f dB | fused dense=%.1f sparse=%.1f dB\n', ...
-            snr5(end), Sd1(end), Ss1(end), Sdf(end), Ssf(end));
-    fprintf('[Sparse] S5: cross-AP fusion recovers %.1f dB of the sparse grating-lobe loss at %ddB\n', ...
-            Ssf(end) - Ss1(end), snr5(end));
-
-    % ============ MECH (optional): 2D near-field focusing pattern =============
-    if show_mechanism
-        rgrid = linspace(3, min(1.2*d_Ray, 240), 200);
-        ss3   = linspace(-1, 1, 361);
-        aFocus = nf(posU, r0sp, s0sp);
-        Pnf = zeros(numel(rgrid), numel(ss3));
-        for ir = 1:numel(rgrid)
-            for is = 1:numel(ss3), Pnf(ir,is) = gn(nf(posU, rgrid(ir), ss3(is)), aFocus); end
-        end
-        Pff1 = arrayfun(@(s) gn(ff(posU,s), ff(posU,s0sp)), ss3);
-        PffdB = repmat(20*log10(max(Pff1,1e-3)), numel(rgrid), 1);
-        PnfdB = 20*log10(max(Pnf, 1e-3));
-        aFF = 100*mean(PffdB(:) > -3);  aNF = 100*mean(PnfdB(:) > -3);   % ambiguity area (>-3dB)
-        figure('Name', 'MECH-NearField-2D-Focusing', 'Position', [40 40 1200 500]);
-        subplot(1,2,1); imagesc(ss3, rgrid, PffdB); set(gca,'YDir','normal'); caxis([-20 0]); colorbar;
-        xlabel('sin(\theta)', 'FontSize', 12); ylabel('Range r [m]', 'FontSize', 12);
-        title(sprintf('Far-field: ambiguous at all ranges (>-3dB area = %.0f%%)', aFF), 'FontSize', 11);
-        hold on; plot(s0sp, r0sp, 'w+', 'MarkerSize', 10, 'LineWidth', 1.5);
-        subplot(1,2,2); imagesc(ss3, rgrid, PnfdB); set(gca,'YDir','normal'); caxis([-20 0]); colorbar;
-        xlabel('sin(\theta)', 'FontSize', 12); ylabel('Range r [m]', 'FontSize', 12);
-        title(sprintf('Near-field: range-selective (>-3dB area = %.0f%%)', aNF), 'FontSize', 11);
-        hold on; plot(s0sp, r0sp, 'w+', 'MarkerSize', 10, 'LineWidth', 1.5);
-        sgtitle('Near-field focusing shrinks the interferer-blind region', 'FontSize', 12);
-        fprintf('[Sparse] MECH: interferer-blind area (>-3dB)  far-field=%.0f%%  near-field=%.0f%%\n', aFF, aNF);
+    for d = 1:4
+        plot(SNR_dB, SE_det_est(d, :), ['-' mkcsi{d}], 'Color', cDcsi{d}, ...
+            'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nmcsi{d} ' - estimated CSI']);
     end
-end
-
-%% ====================================================================
-function D = ir_cluster_refine_det(D_CN, Hh3, Hm3, C, gnorm, p, prelog, eta, N, L, K, nDec)
-% INFORMATION-RATE clustering by rate-improving local search seeded at the
-% channel-norm (CN) cluster, scored by the ACTUAL detector rate (Mashdour,
-% Salehi, de Lamare, Schmeink, Lima, "Clustering and Scheduling With Fairness
-% Based on Information Rates for Cell-Free MIMO Networks," IEEE WCL 13(7), 2024).
-%
-% WHY A PROXY FAILED. Earlier versions ranked APs by a hand-made SINR proxy.
-% A proxy can disagree with what the detector actually delivers, so IR came
-% out BELOW channel norm. This version removes the proxy entirely: it scores
-% every candidate cluster with det_local_sic -- the SAME function and the SAME
-% channel realizations the figures average -- so the objective IS the plotted
-% rate. Seeding at the CN cluster and applying only rate-INCREASING swaps makes
-% the IR sum-rate >= the CN sum-rate BY CONSTRUCTION, and strictly above it
-% whenever a co-pilot-contaminated AP can be traded for a cleaner one.
-%
-%   Hh3, Hm3 : [L*N x nReal x K] estimated and true channels (this SNR)
-%   C        : [N x N x L x K]  estimation-error covariance
-%   gnorm    : [L x K] channel-norm metric, used only to choose which CN member
-%              to try dropping first (the weakest); it never overrides the rate.
-%   nDec     : realizations used to score a cluster (nDec = nReal gives the
-%              exact guarantee against the plotted average; lower = faster).
-%
-% The score is the pair [L-MMSE sum-rate, SIC sum-rate] because Figs 1/2/4 plot
-% BOTH combiners for each clustering rule. A swap is accepted only if NEITHER
-% sum-rate falls below its running value and at least one strictly rises, so
-% the final IR cluster dominates CN on BOTH the L-MMSE and the SIC curve.
-    LN = L * N;
-    nR = size(Hh3, 2);
-    nDec = max(1, min(nDec, nR));
-    D = D_CN;
-    [bl, bs] = tot_se(D);         % CN baseline (both combiners)
-    for pass = 1:2
-        changed = false;
-        for k = 1:K
-            inC  = find(D(:, k));
-            outC = find(~D(:, k));
-            if isempty(outC) || isempty(inC), continue; end
-            [~, wi] = sort(gnorm(inC, k), 'ascend');
-            tryIn = inC(wi(1:min(2, numel(wi))));   % the 1-2 weakest CN members
-            bestGain = 0;  bestSwap = [];  bestBL = bl;  bestBS = bs;
-            for ai = tryIn(:).'
-                for bo = outC(:).'
-                    Dc = D;  Dc(ai, k) = false;  Dc(bo, k) = true;
-                    [rl, rs] = tot_se(Dc);
-                    % dominance: neither combiner worse, at least one better
-                    if rl >= bl * (1 - 1e-12) && rs >= bs * (1 - 1e-12) ...
-                            && (rl + rs) > (bl + bs) * (1 + 1e-9)
-                        gain = (rl - bl) + (rs - bs);
-                        if gain > bestGain
-                            bestGain = gain;  bestSwap = [ai, bo];
-                            bestBL = rl;  bestBS = rs;
-                        end
-                    end
-                end
-            end
-            if ~isempty(bestSwap)
-                D(bestSwap(1), k) = false;  D(bestSwap(2), k) = true;
-                bl = bestBL;  bs = bestBS;  changed = true;
-            end
-        end
-        if ~changed, break; end
+    for d = 1:4
+        plot(SNR_dB, SE_det_pf(d, :), ['--' mkcsi{d}], 'Color', cDcsi{d}, ...
+            'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nmcsi{d} ' - perfect CSI']);
     end
+    set(gca, 'XTick', SNR_dB);
+    xlabel('SNR [dB]', 'FontSize', 13); ylabel('Goodput sum-rate [bps/Hz]', 'FontSize', 13);
+    title(sprintf('Sum-rate of all detectors: estimated vs perfect CSI (hybrid NF/FF)\nSE_k = prelog\\cdotlog_2(M)(1-BER_k), M=%d', modOrder), 'FontSize', 11);
+    legend('Location', 'northwest', 'FontSize', 8, 'NumColumns', 2);
 
-    function [Rl, Rs] = tot_se(Dmask)
-        al = 0;  as = 0;
-        for rr = 1:nDec
-            Hh = reshape(Hh3(:, rr, :), [LN, K]);
-            Hm = reshape(Hm3(:, rr, :), [LN, K]);
-            sl = det_local(Hh, Hm, C, Dmask, p, prelog, eta, N, L, K);
-            ss = det_local_sic(Hh, Hm, C, Dmask, p, prelog, eta, N, L, K);
-            al = al + sum(sl);  as = as + sum(ss);
-        end
-        Rl = al / nDec;  Rs = as / nDec;
-    end
+    fprintf('\n[CSI] BER at %ddB (proposed detector): estimated=%.2e  perfect=%.2e\n', ...
+            SNR_dB(end), aBERrt_est(4, end), aBERrt_pf(4, end));
+    fprintf('[CSI] Sum-rate at %ddB (proposed detector): estimated=%.2f  perfect=%.2f bps/Hz\n', ...
+            SNR_dB(end), SE_det_est(4, end), SE_det_pf(4, end));
 end
 
 %% ====================================================================
