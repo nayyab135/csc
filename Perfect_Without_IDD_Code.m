@@ -142,6 +142,15 @@ contamination_mode = true;
 nf_csi_consistent  = true;   % (S2) NF pairs: exact channel -> NUSW-floor error covariance.
                               % Set false to reproduce the original inconsistent path.
 
+% [GBSE] Graph-Based Steepest-Ascent uplink clustering (adapts Tesolin &
+%  de Lamare, IEEE WCL 2026 / arXiv 2607.04074, to the uplink; see the
+%  gbse_cluster function). This is the expensive study: it runs the
+%  detector-rate objective over the serving-state graph. Throttle via
+%  gbse_nEval / gbse_maxMoves, or set gbse_study=false to skip entirely.
+gbse_study    = true;   % add the proposed GBSE clustering (method 3)
+gbse_nEval    = 2;      % channel realizations per objective evaluation (raise for accuracy)
+gbse_maxMoves = 6;      % max steepest-ascent swap moves
+
 if contamination_mode
     tau_p     = K / 2;
     tau_sym   = K / 2;
@@ -277,6 +286,13 @@ SR_RTcl_lmmse_acc = zeros(nSetups, nSNR);
 BER_RTcl_lmmse_acc = zeros(nSetups, nSNR);
 SR_RTcl_cnsic_acc = zeros(nSetups, nSNR);
 BER_RTcl_cnsic_acc = zeros(nSetups, nSNR);
+
+% [GBSE] proposed graph-based steepest-ascent clustering (method 3)
+SR_GBSE_lmmse_acc  = zeros(nSetups, nSNR);   BER_GBSE_lmmse_acc = zeros(nSetups, nSNR);
+SR_GBSE_cnsic_acc  = zeros(nSetups, nSNR);   BER_GBSE_cnsic_acc = zeros(nSetups, nSNR);
+SR_GBSE_lmmse_pf_acc = zeros(nSetups, nSNR); SR_GBSE_cnsic_pf_acc = zeros(nSetups, nSNR);
+loadGBSE_acc = zeros(nSetups, nSNR);         % avg GBSE cluster size (fronthaul load)
+gbseConv_acc = zeros(nSetups, gbse_maxMoves + 1);  % convergence trajectory @ ref SNR
 
 % [PERFECT-CSI, FIG 1/2] genie variants (true channel in the combiner, C=0)
 % of the five architectures, L-MMSE and SIC, for the perfect-CSI sum-rate
@@ -600,7 +616,12 @@ parfor ns = 1:nSetups
     %% ================================================================
     %  SNR LOOP
     %% ================================================================
-    for si = 1:nSNR
+    D_GBSE_cache = [];   % [GBSE] cluster computed once per setup, reused across SNR
+    % Visit the reference SNR first so the one-time GBSE cluster (below) is
+    % formed at the reference operating point (interference-limited), where
+    % the coupled objective is most informative -- then reused at all SNRs.
+    si_seq = [snr_ref_idx, setdiff(1:nSNR, snr_ref_idx, 'stable')];
+    for si = si_seq
         p = (SNR_lin(si));
         p3 = 4 * p;
         % --------------------------------------------------------------
@@ -894,10 +915,48 @@ parfor ns = 1:nSetups
         loadBSR_acc(ns, si) = mean(sum(D_BSR, 1));
         clDiff_acc(ns, si) = mean(sum(D_CN ~= D_BSR, 1));
 
+        % ============ [GBSE] Graph-Based Steepest-Ascent clustering ==========
+        %  Adapts the Hamming-graph steepest-ascent search of Tesolin & de
+        %  Lamare (IEEE WCL 2026; arXiv 2607.04074) to the UPLINK. Outer layer:
+        %  cardinality-preserving swap moves over the serving matrix, so the
+        %  fronthaul load equals that of CN/IR by construction (fair compare).
+        %  Inner objective: the COUPLED post-combiner uplink sum-rate from
+        %  det_local under estimated CSI -- interference between co-served UEs
+        %  enters the SINR, unlike the separable CN/IR scores. NF/FF-aware
+        %  candidate mask from metric_CN (h_det energy for NF, beta for FF).
+        %  Initialized at the CN cluster => GBSE >= CN by the ascent argument.
+        if gbse_study
+            if isempty(D_GBSE_cache)
+                % Compute the GBSE cluster ONCE per setup (first SNR point) and
+                % reuse it across all SNR values -- clustering is an SNR-agnostic
+                % serving-state assignment, exactly like the CN cluster D_CN.
+                gbCand = false(L, K);
+                for k = 1:K
+                    szk = max(nnz(D_CN(:, k)), 1);
+                    nc  = min(max(2 * szk, szk + 2), L);
+                    [~, ordc] = sort(metric_CN(:, k), 'descend');
+                    gbCand(ordc(1:nc), k) = true;
+                end
+                nEvalG = min(gbse_nEval, nReal);
+                objG = @(Dm) gbse_obj(Dm, Hhc, Hc, Cc, p, prelog, eta_FH, N, L, K, nEvalG);
+                [D_GBSE_cache, gbTraj] = gbse_cluster(D_CN, gbCand, objG, gbse_maxMoves);
+                % capture the (monotone) convergence trajectory once, padded
+                convRow = gbTraj(end) * ones(1, gbse_maxMoves + 1);
+                nT = min(numel(gbTraj), gbse_maxMoves + 1);
+                convRow(1:nT) = gbTraj(1:nT);
+                gbseConv_acc(ns, :) = convRow;
+            end
+            D_GBSE = D_GBSE_cache;
+            loadGBSE_acc(ns, si) = mean(sum(D_GBSE, 1));
+        else
+            D_GBSE = D_BSR;
+        end
 
-        for method = 1:2
+        for method = 1:3
             if method == 1
                 Dcl = D_CN;
+            elseif method == 3
+                Dcl = D_GBSE;
             else
                 Dcl = D_BSR;
             end
@@ -931,6 +990,14 @@ parfor ns = 1:nSetups
                 BER_CNcl_cnsic_acc(ns, si) = mean(BEs(:));
                 SR_CNcl_lmmse_pf_acc(ns, si) = sum(mean(SEl_pf, 2));
                 SR_CNcl_cnsic_pf_acc(ns, si) = sum(mean(SEs_pf, 2));
+            elseif method == 3
+                % [GBSE] proposed graph-based steepest-ascent cluster
+                SR_GBSE_lmmse_acc(ns, si) = sum(mean(SEl, 2));
+                BER_GBSE_lmmse_acc(ns, si) = mean(BEl(:));
+                SR_GBSE_cnsic_acc(ns, si) = sum(mean(SEs, 2));
+                BER_GBSE_cnsic_acc(ns, si) = mean(BEs(:));
+                SR_GBSE_lmmse_pf_acc(ns, si) = sum(mean(SEl_pf, 2));
+                SR_GBSE_cnsic_pf_acc(ns, si) = sum(mean(SEs_pf, 2));
             else
                 SR_RTcl_lmmse_acc(ns, si) = sum(mean(SEl, 2));
                 BER_RTcl_lmmse_acc(ns, si) = mean(BEl(:));
@@ -1362,6 +1429,13 @@ SR3_lmmse_pf = mean(SR3_lmmse_pf_acc, 1);   SR3_cnsic_pf = mean(SR3_cnsic_pf_acc
 SR_CNcl_lmmse_pf = mean(SR_CNcl_lmmse_pf_acc, 1);  SR_CNcl_cnsic_pf = mean(SR_CNcl_cnsic_pf_acc, 1);
 SR_RTcl_lmmse_pf = mean(SR_RTcl_lmmse_pf_acc, 1);  SR_RTcl_cnsic_pf = mean(SR_RTcl_cnsic_pf_acc, 1);
 
+% [GBSE] proposed clustering, averaged over setups
+SR_GBSE_lmmse  = mean(SR_GBSE_lmmse_acc, 1);   SR_GBSE_cnsic  = mean(SR_GBSE_cnsic_acc, 1);
+BER_GBSE_lmmse = mean(BER_GBSE_lmmse_acc, 1);  BER_GBSE_cnsic = mean(BER_GBSE_cnsic_acc, 1);
+SR_GBSE_lmmse_pf = mean(SR_GBSE_lmmse_pf_acc, 1);  SR_GBSE_cnsic_pf = mean(SR_GBSE_cnsic_pf_acc, 1);
+loadGBSE = mean(loadGBSE_acc, 1);
+gbseConv = mean(gbseConv_acc, 1);   % mean convergence trajectory @ ref SNR
+
 BER1_NF = mean(BER1_NF_acc, 1);
 SR1_NF = mean(SR1_NF_acc, 1);
 BER2_NF = mean(BER2_NF_acc, 1);
@@ -1736,6 +1810,7 @@ c3_li = [0.49 0.18 0.56];
 c3_si = [0.75 0.40 0.85];
 cCN = [0.85 0.45 0.00];
 cRT = [0.13 0.55 0.13];
+cGB = [0.60 0.00 0.70];   % [GBSE] proposed clustering
 
 %% ====================================================================
 %  FIGURE 1 - Sum-rate   [RETAINED + proposed clustering curves added]
@@ -1754,12 +1829,14 @@ plot(SNR_dB, SR_CNcl_lmmse_pf, '--o', 'Color', cCN, 'LineWidth', lw, 'MarkerSize
 plot(SNR_dB, SR_CNcl_cnsic_pf, '--s', 'Color', cCN, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Hybrid CN-clustering: SIC');
 plot(SNR_dB, SR_RTcl_lmmse_pf, '--^', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Hybrid IR-clustering: L-MMSE');
 plot(SNR_dB, SR_RTcl_cnsic_pf, '--d', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'Hybrid IR-clustering: SIC');
+plot(SNR_dB, SR_GBSE_lmmse_pf, '-p', 'Color', cGB, 'LineWidth', lw + 0.6, 'MarkerSize', ms + 2, 'DisplayName', 'Hybrid GBSE-clustering (proposed): L-MMSE');
+plot(SNR_dB, SR_GBSE_cnsic_pf, '-h', 'Color', cGB, 'LineWidth', lw + 0.6, 'MarkerSize', ms + 2, 'DisplayName', 'Hybrid GBSE-clustering (proposed): SIC');
 xlabel('SNR [dB]', 'FontSize', 13);
 ylabel('Sum-rate [bps/Hz]', 'FontSize', 13);
-title(sprintf(['Sum-rate, PERFECT CSI: Centralized BS (far-field) vs Cell-free (far-field & hybrid NF/FF) + Clustering\n'...
-               'Channel: hybrid near-field/far-field for CF NF/FF & clustering; d_{Ray}(CF)=%.0fm  N_{BS}=%d  squareLen=%dm  L=%d  K=%d  \\eta_{FH}=%.2f'], ...
-              d_Ray, N_BS, squareLen, L, K, eta_FH), 'FontSize', 10);
-legend('Location', 'northwest', 'FontSize', 8, 'NumColumns', 2);
+title(sprintf(['Sum-rate, PERFECT CSI: Centralized BS (far-field) vs Cell-free (far-field & hybrid NF/FF) + Clustering (CN / IR / GBSE)\n'...
+               'Channel: hybrid near-field/far-field; GBSE at matched fronthaul load; d_{Ray}(CF)=%.0fm  N_{BS}=%d  squareLen=%dm  L=%d  K=%d  \\eta_{FH}=%.2f'], ...
+              d_Ray, N_BS, squareLen, L, K, eta_FH), 'FontSize', 9);
+legend('Location', 'northwest', 'FontSize', 7, 'NumColumns', 2);
 set(gca, 'XTick', xt);
 
 %% ====================================================================
@@ -2374,6 +2451,27 @@ if csi_study
     title(sprintf(['Channel-estimation quality vs SNR, hybrid model (\\tau_{sym} pilots, LMMSE)\n'...
                    'NF lower NMSE because the NUSW correlation R is rank-1 (few DoF to estimate), not a fairness gain']), 'FontSize', 10);
     legend('Location', 'southwest', 'FontSize', 9);
+
+    %% ================================================================
+    %  [FIG 20 companion] PER-DETECTOR SYMBOL NMSE under ESTIMATED CSI
+    %  The estimator-NMSE figure above (tr(C)/tr(R)) is channel-estimation
+    %  quality and does NOT depend on the detector, so it carries no
+    %  per-detector (e.g. Cross-AP) curve. The detector-dependent quantity is
+    %  the post-detection SYMBOL NMSE; here it is plotted under ESTIMATED CSI
+    %  for all four detectors, including the proposed Cross-AP List-SIC.
+    %  Channel model: hybrid near-field/far-field, IR (rate) clustering.
+    %% ================================================================
+    figure('Name', 'SymbolNMSE-Detectors-Estimated', 'Position', [130 30 880 560]);
+    hold on; box on; grid on; set(gca, 'YScale', 'log');
+    for d = 1:4
+        semilogy(SNR_dB, max(NMSE_det_est(d, :), 1e-6), ['-' mk4{d}], 'Color', cD4{d}, ...
+            'LineWidth', 2 + 0.3 * (d >= 3), 'MarkerSize', 7, 'DisplayName', nm4{d});
+    end
+    set(gca, 'YMinorGrid', 'on', 'XTick', SNR_dB);
+    xlabel('SNR [dB]', 'FontSize', 13); ylabel('Symbol NMSE', 'FontSize', 13);
+    title(sprintf(['Per-detector symbol NMSE, ESTIMATED CSI (hybrid NF/FF, IR clustering)\n'...
+                   'includes proposed Cross-AP List-SIC']), 'FontSize', 10);
+    legend('Location', 'southwest', 'FontSize', 9);
 end
 
 if ff_study
@@ -2420,6 +2518,118 @@ if ff_study
     xlabel('SNR [dB]', 'FontSize', 12); ylabel('Goodput sum-rate [bps/Hz]', 'FontSize', 12);
     title('Sum-rate (perfect CSI)', 'FontSize', 11); legend('Location', 'northwest', 'FontSize', 8);
     sgtitle('Other detectors (Linear, SIC, List-SIC): near-field vs far-field channel model, perfect CSI', 'FontSize', 11);
+end
+
+%% ====================================================================
+%  [GBSE] PROPOSED CLUSTERING STUDY - CN vs IR vs GBSE
+%  Channel model: hybrid near-field/far-field. Demonstrates that the
+%  graph-based steepest-ascent search (adapted from Tesolin & de Lamare,
+%  IEEE WCL 2026 / arXiv 2607.04074) dominates the separable channel-norm
+%  (CN) and information-rate (IR) rules at MATCHED fronthaul load, because
+%  its inner objective is the coupled post-combiner uplink rate.
+%   Panel 1: sum-rate vs SNR (perfect CSI), L-MMSE, CN/IR/GBSE.
+%   Panel 2: sum-rate vs SNR (estimated CSI), L-MMSE, CN/IR/GBSE.
+%   Panel 3: mean convergence trajectory of GBSE @ reference SNR (monotone).
+%   Panel 4: mean cluster size CN/IR/GBSE (equal => fair comparison).
+%% ====================================================================
+if gbse_study
+    loadCN_m  = mean(loadCN_acc(:));
+    loadBSR_m = mean(loadBSR_acc(:));
+    loadGBSE_m = mean(loadGBSE_acc(:));
+    figure('Name', 'GBSE-Clustering-Study', 'Position', [40 40 1300 620]);
+
+    subplot(1, 4, 1); hold on; box on; grid on;
+    plot(SNR_dB, SR_CNcl_lmmse_pf, '--o', 'Color', cCN, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'CN-clustering');
+    plot(SNR_dB, SR_RTcl_lmmse_pf, '--^', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'IR-clustering');
+    plot(SNR_dB, SR_GBSE_lmmse_pf, '-p', 'Color', cGB, 'LineWidth', lw + 0.6, 'MarkerSize', ms + 2, 'DisplayName', 'GBSE (proposed)');
+    set(gca, 'XTick', xt); xlabel('SNR [dB]', 'FontSize', 11); ylabel('Sum-rate [bps/Hz]', 'FontSize', 11);
+    title(sprintf('Sum-rate (perfect CSI), L-MMSE\nhybrid NF/FF, matched load'), 'FontSize', 9);
+    legend('Location', 'northwest', 'FontSize', 8);
+
+    subplot(1, 4, 2); hold on; box on; grid on;
+    plot(SNR_dB, SR_CNcl_lmmse, '--o', 'Color', cCN, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'CN-clustering');
+    plot(SNR_dB, SR_RTcl_lmmse, '--^', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms, 'DisplayName', 'IR-clustering');
+    plot(SNR_dB, SR_GBSE_lmmse, '-p', 'Color', cGB, 'LineWidth', lw + 0.6, 'MarkerSize', ms + 2, 'DisplayName', 'GBSE (proposed)');
+    set(gca, 'XTick', xt); xlabel('SNR [dB]', 'FontSize', 11); ylabel('Sum-rate [bps/Hz]', 'FontSize', 11);
+    title(sprintf('Sum-rate (estimated CSI), L-MMSE\nhybrid NF/FF, matched load'), 'FontSize', 9);
+    legend('Location', 'northwest', 'FontSize', 8);
+
+    subplot(1, 4, 3); hold on; box on; grid on;
+    plot(0:numel(gbseConv) - 1, gbseConv, '-p', 'Color', cGB, 'LineWidth', lw + 0.6, 'MarkerSize', ms + 2);
+    xlabel('Steepest-ascent move', 'FontSize', 11); ylabel('Objective: uplink sum-rate [bps/Hz]', 'FontSize', 11);
+    title(sprintf('GBSE convergence @ %d dB\n(monotone by construction)', snr_ref_dB), 'FontSize', 9);
+
+    subplot(1, 4, 4); hold on; box on; grid on;
+    bar([loadCN_m, loadBSR_m, loadGBSE_m], 'FaceColor', [0.6 0.6 0.6]);
+    set(gca, 'XTick', 1:3, 'XTickLabel', {'CN', 'IR', 'GBSE'});
+    ylabel('Mean cluster size [APs/UE]', 'FontSize', 11);
+    title(sprintf('Fronthaul load (equal => fair)\nCN=%.2f IR=%.2f GBSE=%.2f', loadCN_m, loadBSR_m, loadGBSE_m), 'FontSize', 9);
+
+    sgtitle('Proposed GBSE clustering vs CN / IR (hybrid NF/FF, matched fronthaul load)', 'FontSize', 12);
+
+    fprintf('\n--- [GBSE] Clustering sum-rate (L-MMSE) at %d dB ---\n', snr_ref_dB);
+    fprintf('   CN=%.3f  IR=%.3f  GBSE=%.3f bps/Hz (perfect CSI)\n', ...
+            SR_CNcl_lmmse_pf(snr_ref_idx), SR_RTcl_lmmse_pf(snr_ref_idx), SR_GBSE_lmmse_pf(snr_ref_idx));
+    fprintf('   CN=%.3f  IR=%.3f  GBSE=%.3f bps/Hz (estimated CSI)\n', ...
+            SR_CNcl_lmmse(snr_ref_idx), SR_RTcl_lmmse(snr_ref_idx), SR_GBSE_lmmse(snr_ref_idx));
+    fprintf('   mean cluster size: CN=%.2f IR=%.2f GBSE=%.2f APs/UE\n', loadCN_m, loadBSR_m, loadGBSE_m);
+end
+
+%% ====================================================================
+%  [GBSE] Graph-Based Steepest-Ascent uplink clustering.
+%  Adapts the Hamming-graph steepest-ascent (SAHC) search of Tesolin & de
+%  Lamare (IEEE WCL 2026 / arXiv 2607.04074) from downlink energy efficiency
+%  to the UPLINK detection objective. The search space is the serving-state
+%  graph; here the neighborhood uses CARDINALITY-PRESERVING SWAP moves (remove
+%  one serving AP, add one eligible candidate), so every visited state keeps
+%  the same per-user cluster size as the D_CN initializer -- the fronthaul
+%  load is held equal to CN/IR by construction, which is what makes the
+%  head-to-head comparison fair. objfun returns the coupled uplink sum-rate to
+%  MAXIMISE. Monotone ascent over a finite state space => convergence, and the
+%  returned cluster is >= the CN initialization by the ascent argument.
+function [D, traj] = gbse_cluster(D0, cand, objfun, maxMoves)
+    [~, K] = size(D0);
+    D = logical(D0);
+    best = objfun(D);
+    traj = best;
+    for mv = 1:maxMoves
+        bestD = D; bestVal = best; improved = false;
+        for k = 1:K
+            served = find(D(:, k));
+            cands  = find(cand(:, k) & ~D(:, k));
+            for ia = 1:numel(served)
+                a = served(ia);
+                for ib = 1:numel(cands)
+                    b = cands(ib);
+                    Dt = D; Dt(a, k) = false; Dt(b, k) = true;
+                    v = objfun(Dt);
+                    if v > bestVal + 1e-9
+                        bestVal = v; bestD = Dt; improved = true;
+                    end
+                end
+            end
+        end
+        if ~improved
+            break;
+        end
+        D = bestD; best = bestVal; traj(end + 1) = best; %#ok<AGROW>
+    end
+end
+
+%  [GBSE] coupled inner objective: mean post-combiner uplink sum-rate of the
+%  candidate serving matrix D, evaluated with the local L-MMSE detector under
+%  ESTIMATED CSI (Hhat estimate, Htrue true channel, C error covariance).
+%  Interference between co-served UEs enters det_local's SINR, so unlike the
+%  separable CN/IR scores this objective sees the coupling clustering discards.
+function val = gbse_obj(D, Hhat, Htrue, C, p, prelog, eta, N, L, K, nEval)
+    val = 0;
+    for mc = 1:nEval
+        Hh = reshape(Hhat(:, mc, :),  [L * N, K]);
+        Hm = reshape(Htrue(:, mc, :), [L * N, K]);
+        se = det_local(Hh, Hm, C, D, p, prelog, eta, N, L, K);
+        val = val + sum(se);
+    end
+    val = val / max(nEval, 1);
 end
 
 %% ====================================================================
