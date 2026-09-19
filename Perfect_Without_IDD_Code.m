@@ -57,9 +57,23 @@ clc;
 %% ====================================================================
 %  PARAMETERS
 %% ====================================================================
-L  = 8;
-K  = 8 ;
-N  = 64;
+% [OPERATING POINT] near-field detection vs interference-limited clustering.
+%  false (default): the near-field study -- large per-AP aperture (N=64), so
+%    the array separates users trivially, the system is NOISE-limited, and
+%    CN/IR/GBSE clustering coincide (greedy is optimal). This is the regime
+%    for the near-field/Cross-AP detection results.
+%  true: the CLUSTERING study -- small per-AP arrays (N=4), more users and a
+%    denser deployment, so local combiners are INTERFERENCE-limited and the
+%    choice of serving APs (CN vs IR vs GBSE) actually matters. This sacrifices
+%    the near-field aperture (d_Ray shrinks -> effectively far-field), matching
+%    de Lamare's cell-free clustering setup. Run the paper as TWO operating
+%    points: near-field detection (false) and clustering gains (true).
+interf_preset = false;
+if interf_preset
+    L = 16;  K = 16;  N = 4;   squareLen_preset = 100;
+else
+    L = 8;   K = 8;   N = 64;  squareLen_preset = 300;
+end
 N_BS = L * N;
 
 fc     = 3e9;
@@ -80,7 +94,7 @@ SNR_lin = 10.^(SNR_dB / 10);
 nSNR    = length(SNR_dB);
 LN      = L * N;
 
-squareLen = 300;
+squareLen = squareLen_preset;
 hDiff     = 10;
 hBS       = 25;
 hUT       = 1.5;
