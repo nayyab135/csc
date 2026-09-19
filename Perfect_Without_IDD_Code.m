@@ -313,9 +313,10 @@ loadGBSE_acc = zeros(nSetups, nSNR);         % avg GBSE cluster size (fronthaul 
 gbseConv_acc = zeros(nSetups, gbse_maxMoves + 1);  % convergence trajectory @ ref SNR
 % [GBSE] cluster-size sweep: sum-rate of CN/IR/GBSE vs a fixed cluster budget,
 % evaluated with the coupled objective at the reference SNR (estimated CSI).
-srSweep_cn_acc = zeros(nSetups, numel(gbse_sizeSweep));
-srSweep_ir_acc = zeros(nSetups, numel(gbse_sizeSweep));
-srSweep_gb_acc = zeros(nSetups, numel(gbse_sizeSweep));
+nSizeSw = numel(gbse_sizeSweep);   % plain var so parfor accepts 1:nSizeSw
+srSweep_cn_acc = zeros(nSetups, nSizeSw);
+srSweep_ir_acc = zeros(nSetups, nSizeSw);
+srSweep_gb_acc = zeros(nSetups, nSizeSw);
 
 % [PERFECT-CSI, FIG 1/2] genie variants (true channel in the combiner, C=0)
 % of the five architectures, L-MMSE and SIC, for the perfect-CSI sum-rate
@@ -719,7 +720,7 @@ parfor ns = 1:nSetups
                 SRlk_g(l, k) = log2(1 + p_g * gmm / (p_g * er + 1));
             end
         end
-        for mi = 1:numel(gbse_sizeSweep)
+        for mi = 1:nSizeSw
             Msz = min(gbse_sizeSweep(mi), L);
             Dcn_M = false(L, K);  Dir_M = false(L, K);  candM = false(L, K);
             for k = 1:K
