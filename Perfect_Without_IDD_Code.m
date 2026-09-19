@@ -616,12 +616,74 @@ parfor ns = 1:nSetups
     %% ================================================================
     %  SNR LOOP
     %% ================================================================
-    D_GBSE_cache = [];   % [GBSE] cluster computed once per setup, reused across SNR
-    % Visit the reference SNR first so the one-time GBSE cluster (below) is
-    % formed at the reference operating point (interference-limited), where
-    % the coupled objective is most informative -- then reused at all SNRs.
-    si_seq = [snr_ref_idx, setdiff(1:nSNR, snr_ref_idx, 'stable')];
-    for si = si_seq
+    % ================================================================
+    %  [GBSE] Compute the proposed graph-based steepest-ascent cluster ONCE
+    %  per setup, at the REFERENCE operating point (interference-limited,
+    %  where the coupled objective is most informative), then reuse it at
+    %  every SNR -- clustering is an SNR-agnostic serving-state assignment,
+    %  exactly like D_CN. Done BEFORE the SNR loop so the inner loop stays a
+    %  plain 1:nSNR range (required for parfor sliced-variable indexing).
+    %  Adapts the Hamming-graph steepest-ascent search of Tesolin & de Lamare
+    %  (IEEE WCL 2026 / arXiv 2607.04074) to the uplink; see gbse_cluster.
+    if gbse_study
+        p_g = SNR_lin(snr_ref_idx);
+        Hc_g = randn(LN, nReal, K) + 1j * randn(LN, nReal, K);
+        for l = 1:L
+            idx = (l - 1) * N + 1:l * N;
+            for k = 1:K
+                if NF_mask(l, k)
+                    Hc_g(idx, :, k) = repmat(h_det_all(:, l, k), [1, nReal]);
+                else
+                    Hc_g(idx, :, k) = sqrt(0.5) * Rs2(:, :, l, k) * Hc_g(idx, :, k);
+                end
+            end
+        end
+        Npc_g = sqrt(0.5) * (randn(N, nReal, L, tau_p) + 1j * randn(N, nReal, L, tau_p));
+        Hhc_g = zeros(LN, nReal, K);
+        Cc_g = zeros(N, N, L, K);
+        for l = 1:L
+            idx = (l - 1) * N + 1:l * N;
+            for t = 1:tau_p
+                ue_t = find(pilotIndex == t)';
+                yp = sqrt(p_g) * tau_p * sum(Hc_g(idx, :, ue_t), 3) + sqrt(tau_p) * Npc_g(:, :, l, t);
+                Psi_t = p_g * tau_p * sum(R2(:, :, l, ue_t), 4) + eye(N);
+                for k = ue_t
+                    RPsi = R2(:, :, l, k) / Psi_t;
+                    Hhc_g(idx, :, k) = sqrt(p_g) * RPsi * yp;
+                    Cc_g(:, :, l, k) = R2(:, :, l, k) - p_g * tau_p * RPsi * R2(:, :, l, k);
+                end
+            end
+        end
+        for l = 1:L
+            idx = (l - 1) * N + 1:l * N;
+            for k = 1:K
+                if NF_mask(l, k)
+                    Hhc_g(idx, :, k) = repmat(h_det_all(:, l, k), [1, nReal]);
+                    if nf_csi_consistent
+                        Cc_g(:, :, l, k) = eps_NF * beta(l, k) * eye(N);
+                    end
+                end
+            end
+        end
+        gbCand = false(L, K);
+        for k = 1:K
+            szk = max(nnz(D_CN(:, k)), 1);
+            nc  = min(max(2 * szk, szk + 2), L);
+            [~, ordc] = sort(metric_CN(:, k), 'descend');
+            gbCand(ordc(1:nc), k) = true;
+        end
+        nEvalG = min(gbse_nEval, nReal);
+        objG = @(Dm) gbse_obj(Dm, Hhc_g, Hc_g, Cc_g, p_g, prelog, eta_FH, N, L, K, nEvalG);
+        [D_GBSE_setup, gbTraj] = gbse_cluster(D_CN, gbCand, objG, gbse_maxMoves);
+        convRow = gbTraj(end) * ones(1, gbse_maxMoves + 1);
+        nT = min(numel(gbTraj), gbse_maxMoves + 1);
+        convRow(1:nT) = gbTraj(1:nT);
+        gbseConv_acc(ns, :) = convRow;
+    else
+        D_GBSE_setup = false(L, K);
+    end
+
+    for si = 1:nSNR
         p = (SNR_lin(si));
         p3 = 4 * p;
         % --------------------------------------------------------------
@@ -915,38 +977,11 @@ parfor ns = 1:nSetups
         loadBSR_acc(ns, si) = mean(sum(D_BSR, 1));
         clDiff_acc(ns, si) = mean(sum(D_CN ~= D_BSR, 1));
 
-        % ============ [GBSE] Graph-Based Steepest-Ascent clustering ==========
-        %  Adapts the Hamming-graph steepest-ascent search of Tesolin & de
-        %  Lamare (IEEE WCL 2026; arXiv 2607.04074) to the UPLINK. Outer layer:
-        %  cardinality-preserving swap moves over the serving matrix, so the
-        %  fronthaul load equals that of CN/IR by construction (fair compare).
-        %  Inner objective: the COUPLED post-combiner uplink sum-rate from
-        %  det_local under estimated CSI -- interference between co-served UEs
-        %  enters the SINR, unlike the separable CN/IR scores. NF/FF-aware
-        %  candidate mask from metric_CN (h_det energy for NF, beta for FF).
-        %  Initialized at the CN cluster => GBSE >= CN by the ascent argument.
+        % [GBSE] use the per-setup cluster computed before the SNR loop
+        %  (cardinality-preserving swaps => fronthaul load matched to CN/IR;
+        %  coupled det_local objective => sees the interference CN/IR ignore).
         if gbse_study
-            if isempty(D_GBSE_cache)
-                % Compute the GBSE cluster ONCE per setup (first SNR point) and
-                % reuse it across all SNR values -- clustering is an SNR-agnostic
-                % serving-state assignment, exactly like the CN cluster D_CN.
-                gbCand = false(L, K);
-                for k = 1:K
-                    szk = max(nnz(D_CN(:, k)), 1);
-                    nc  = min(max(2 * szk, szk + 2), L);
-                    [~, ordc] = sort(metric_CN(:, k), 'descend');
-                    gbCand(ordc(1:nc), k) = true;
-                end
-                nEvalG = min(gbse_nEval, nReal);
-                objG = @(Dm) gbse_obj(Dm, Hhc, Hc, Cc, p, prelog, eta_FH, N, L, K, nEvalG);
-                [D_GBSE_cache, gbTraj] = gbse_cluster(D_CN, gbCand, objG, gbse_maxMoves);
-                % capture the (monotone) convergence trajectory once, padded
-                convRow = gbTraj(end) * ones(1, gbse_maxMoves + 1);
-                nT = min(numel(gbTraj), gbse_maxMoves + 1);
-                convRow(1:nT) = gbTraj(1:nT);
-                gbseConv_acc(ns, :) = convRow;
-            end
-            D_GBSE = D_GBSE_cache;
+            D_GBSE = D_GBSE_setup;
             loadGBSE_acc(ns, si) = mean(sum(D_GBSE, 1));
         else
             D_GBSE = D_BSR;
