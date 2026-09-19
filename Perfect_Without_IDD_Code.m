@@ -150,6 +150,10 @@ nf_csi_consistent  = true;   % (S2) NF pairs: exact channel -> NUSW-floor error 
 gbse_study    = true;   % add the proposed GBSE clustering (method 3)
 gbse_nEval    = 2;      % channel realizations per objective evaluation (raise for accuracy)
 gbse_maxMoves = 6;      % max steepest-ascent swap moves
+gbse_sizeSweep = 1:6;   % cluster-size budgets for the CN/IR/GBSE sweep study
+                        %  (the "does clustering ever matter?" diagnostic --
+                        %   greedy CN is near-optimal at size 1, so any gain
+                        %   only appears at larger clusters / interference)
 
 if contamination_mode
     tau_p     = K / 2;
@@ -293,6 +297,11 @@ SR_GBSE_cnsic_acc  = zeros(nSetups, nSNR);   BER_GBSE_cnsic_acc = zeros(nSetups,
 SR_GBSE_lmmse_pf_acc = zeros(nSetups, nSNR); SR_GBSE_cnsic_pf_acc = zeros(nSetups, nSNR);
 loadGBSE_acc = zeros(nSetups, nSNR);         % avg GBSE cluster size (fronthaul load)
 gbseConv_acc = zeros(nSetups, gbse_maxMoves + 1);  % convergence trajectory @ ref SNR
+% [GBSE] cluster-size sweep: sum-rate of CN/IR/GBSE vs a fixed cluster budget,
+% evaluated with the coupled objective at the reference SNR (estimated CSI).
+srSweep_cn_acc = zeros(nSetups, numel(gbse_sizeSweep));
+srSweep_ir_acc = zeros(nSetups, numel(gbse_sizeSweep));
+srSweep_gb_acc = zeros(nSetups, numel(gbse_sizeSweep));
 
 % [PERFECT-CSI, FIG 1/2] genie variants (true channel in the combiner, C=0)
 % of the five architectures, L-MMSE and SIC, for the perfect-CSI sum-rate
@@ -679,6 +688,39 @@ parfor ns = 1:nSetups
         nT = min(numel(gbTraj), gbse_maxMoves + 1);
         convRow(1:nT) = gbTraj(1:nT);
         gbseConv_acc(ns, :) = convRow;
+
+        % ---- [GBSE] cluster-size sweep (diagnostic) ----------------------
+        %  For each fixed cluster budget M, build the CN (top-M channel norm),
+        %  IR (top-M rate score) and GBSE (steepest ascent from CN, candidates
+        %  = top-2M) clusters and score each with the SAME coupled objective at
+        %  the reference SNR. Greedy CN is near-optimal at M=1 (no choice), so
+        %  any GBSE gain can only appear at larger M / interference-limited
+        %  operation. Flat curves here mean the regime does not reward
+        %  clustering -- that is a result, not a bug.
+        SRlk_g = zeros(L, K);
+        for l = 1:L
+            for k = 1:K
+                gmm = max(real(trace(R2(:, :, l, k))) - real(trace(Cc_g(:, :, l, k))), 0);
+                er  = real(trace(Cc_g(:, :, l, k)));
+                SRlk_g(l, k) = log2(1 + p_g * gmm / (p_g * er + 1));
+            end
+        end
+        for mi = 1:numel(gbse_sizeSweep)
+            Msz = min(gbse_sizeSweep(mi), L);
+            Dcn_M = false(L, K);  Dir_M = false(L, K);  candM = false(L, K);
+            for k = 1:K
+                [~, oc] = sort(metric_CN(:, k), 'descend');
+                Dcn_M(oc(1:Msz), k) = true;
+                ncc = min(max(2 * Msz, Msz + 2), L);
+                candM(oc(1:ncc), k) = true;
+                [~, oi] = sort(SRlk_g(:, k), 'descend');
+                Dir_M(oi(1:Msz), k) = true;
+            end
+            Dgb_M = gbse_cluster(Dcn_M, candM, objG, gbse_maxMoves);
+            srSweep_cn_acc(ns, mi) = objG(Dcn_M);
+            srSweep_ir_acc(ns, mi) = objG(Dir_M);
+            srSweep_gb_acc(ns, mi) = objG(Dgb_M);
+        end
     else
         D_GBSE_setup = false(L, K);
     end
@@ -1470,6 +1512,9 @@ BER_GBSE_lmmse = mean(BER_GBSE_lmmse_acc, 1);  BER_GBSE_cnsic = mean(BER_GBSE_cn
 SR_GBSE_lmmse_pf = mean(SR_GBSE_lmmse_pf_acc, 1);  SR_GBSE_cnsic_pf = mean(SR_GBSE_cnsic_pf_acc, 1);
 loadGBSE = mean(loadGBSE_acc, 1);
 gbseConv = mean(gbseConv_acc, 1);   % mean convergence trajectory @ ref SNR
+srSweep_cn = mean(srSweep_cn_acc, 1);   % cluster-size sweep, CN/IR/GBSE
+srSweep_ir = mean(srSweep_ir_acc, 1);
+srSweep_gb = mean(srSweep_gb_acc, 1);
 
 BER1_NF = mean(BER1_NF_acc, 1);
 SR1_NF = mean(SR1_NF_acc, 1);
@@ -2534,25 +2579,25 @@ if ff_study
     title(sprintf('Proposed Cross-AP List-SIC: sum-rate, near-field vs far-field channel model\nsolid = perfect CSI, dashed = estimated CSI'), 'FontSize', 10);
     legend('Location', 'northwest', 'FontSize', 9);
 
-    %% NEW FIGURE F - Other detectors (Linear, SIC, List-SIC): NF vs FF ----
-    figure('Name', 'OtherDetectors-NF-vs-FF', 'Position', [40 40 1220 540]);
+    %% NEW FIGURE F - ALL FOUR detectors incl. Cross-AP: NF vs FF, ESTIMATED CSI
+    figure('Name', 'AllDetectors-NF-vs-FF-Estimated', 'Position', [40 40 1220 540]);
     subplot(1, 2, 1); hold on; box on; grid on;
-    for d = 1:3
-        semilogy(SNR_dB, max(aBERrt_pf(d, :), flrC),    ['-' mk4{d}],  'Color', cD4{d}, 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (near-field)']);
-        semilogy(SNR_dB, max(aBERrt_ff_pf(d, :), flrC), ['--' mk4{d}], 'Color', cD4{d}, 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (far-field)']);
+    for d = 1:4
+        semilogy(SNR_dB, max(aBERrt_est(d, :), flrC),    ['-' mk4{d}],  'Color', cD4{d}, 'LineWidth', 2 + 0.3 * (d >= 3), 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (near-field)']);
+        semilogy(SNR_dB, max(aBERrt_ff_est(d, :), flrC), ['--' mk4{d}], 'Color', cD4{d}, 'LineWidth', 2 + 0.3 * (d >= 3), 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (far-field)']);
     end
     set(gca, 'YScale', 'log', 'YMinorGrid', 'on', 'XTick', SNR_dB); ylim([1e-5 1]);
     xlabel('SNR [dB]', 'FontSize', 12); ylabel('BER (16-QAM)', 'FontSize', 12);
-    title('BER (perfect CSI)', 'FontSize', 11); legend('Location', 'southwest', 'FontSize', 8);
+    title('BER (estimated CSI)', 'FontSize', 11); legend('Location', 'southwest', 'FontSize', 7, 'NumColumns', 2);
     subplot(1, 2, 2); hold on; box on; grid on;
-    for d = 1:3
-        plot(SNR_dB, SE_det_pf(d, :),    ['-' mk4{d}],  'Color', cD4{d}, 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (near-field)']);
-        plot(SNR_dB, SE_det_ff_pf(d, :), ['--' mk4{d}], 'Color', cD4{d}, 'LineWidth', 2, 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (far-field)']);
+    for d = 1:4
+        plot(SNR_dB, SE_det_est(d, :),    ['-' mk4{d}],  'Color', cD4{d}, 'LineWidth', 2 + 0.3 * (d >= 3), 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (near-field)']);
+        plot(SNR_dB, SE_det_ff_est(d, :), ['--' mk4{d}], 'Color', cD4{d}, 'LineWidth', 2 + 0.3 * (d >= 3), 'MarkerSize', 7, 'DisplayName', [nm4{d} ' (far-field)']);
     end
     set(gca, 'XTick', SNR_dB);
     xlabel('SNR [dB]', 'FontSize', 12); ylabel('Goodput sum-rate [bps/Hz]', 'FontSize', 12);
-    title('Sum-rate (perfect CSI)', 'FontSize', 11); legend('Location', 'northwest', 'FontSize', 8);
-    sgtitle('Other detectors (Linear, SIC, List-SIC): near-field vs far-field channel model, perfect CSI', 'FontSize', 11);
+    title('Sum-rate (estimated CSI)', 'FontSize', 11); legend('Location', 'northwest', 'FontSize', 7, 'NumColumns', 2);
+    sgtitle('All detectors (Linear, SIC, List-SIC, Cross-AP List-SIC): near-field vs far-field channel model, ESTIMATED CSI', 'FontSize', 11);
 end
 
 %% ====================================================================
@@ -2608,6 +2653,34 @@ if gbse_study
     fprintf('   CN=%.3f  IR=%.3f  GBSE=%.3f bps/Hz (estimated CSI)\n', ...
             SR_CNcl_lmmse(snr_ref_idx), SR_RTcl_lmmse(snr_ref_idx), SR_GBSE_lmmse(snr_ref_idx));
     fprintf('   mean cluster size: CN=%.2f IR=%.2f GBSE=%.2f APs/UE\n', loadCN_m, loadBSR_m, loadGBSE_m);
+
+    %% ================================================================
+    %  [GBSE] CLUSTER-SIZE SWEEP - the "does clustering matter?" figure.
+    %  Sum-rate (coupled objective, estimated CSI, reference SNR) vs the fixed
+    %  per-UE cluster budget M, for CN / IR / GBSE. If GBSE separates from CN
+    %  anywhere, it is in the mid-range M (enough choice, interference binds).
+    %  If the curves overlap for all M, the deployment is not interference-
+    %  limited and clustering choice does not matter here -- an honest result.
+    %% ================================================================
+    figure('Name', 'GBSE-ClusterSize-Sweep', 'Position', [80 60 760 560]);
+    hold on; box on; grid on;
+    plot(gbse_sizeSweep, srSweep_cn, '--o', 'Color', cCN, 'LineWidth', lw, 'MarkerSize', ms + 1, 'DisplayName', 'CN-clustering');
+    plot(gbse_sizeSweep, srSweep_ir, '--^', 'Color', cRT, 'LineWidth', lw, 'MarkerSize', ms + 1, 'DisplayName', 'IR-clustering');
+    plot(gbse_sizeSweep, srSweep_gb, '-p', 'Color', cGB, 'LineWidth', lw + 0.6, 'MarkerSize', ms + 3, 'DisplayName', 'GBSE (proposed)');
+    xlabel('Cluster-size budget M [APs/UE]', 'FontSize', 12);
+    ylabel(sprintf('Uplink sum-rate @ %d dB [bps/Hz]', snr_ref_dB), 'FontSize', 12);
+    title(sprintf(['Clustering sum-rate vs fronthaul budget (estimated CSI, hybrid NF/FF)\n'...
+                   'gap opens only where choice + interference exist']), 'FontSize', 10);
+    legend('Location', 'southeast', 'FontSize', 10);
+    set(gca, 'XTick', gbse_sizeSweep);
+
+    fprintf('\n--- [GBSE] cluster-size sweep, uplink sum-rate @ %d dB (estimated CSI) ---\n', snr_ref_dB);
+    fprintf('%-6s %10s %10s %10s %10s\n', 'M', 'CN', 'IR', 'GBSE', 'GBSE-CN%');
+    for mi = 1:numel(gbse_sizeSweep)
+        fprintf('%-6d %10.3f %10.3f %10.3f %9.2f%%\n', gbse_sizeSweep(mi), ...
+                srSweep_cn(mi), srSweep_ir(mi), srSweep_gb(mi), ...
+                100 * (srSweep_gb(mi) - srSweep_cn(mi)) / max(srSweep_cn(mi), eps));
+    end
 end
 
 %% ====================================================================
