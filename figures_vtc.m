@@ -142,19 +142,20 @@ figure('Name','VTC-Fig5','Position',[80 120 760 620]);
 hold on; box on; grid on;
 hD = gobjects(1,4);
 for d = 1:4
-    hD(d) = semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);                    % NF estimated: dotted + marker
+    hD(d) = semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
+        'LineWidth', lwB, 'MarkerSize', msB);                    % NF estimated: solid + marker
 end
 for d = 1:4
-    semilogy(SNR_dB, max(aBERrt_ff_est(d,:),flrI), '--', 'Color', cDet{d}, 'LineWidth', lwB); % FF estimated: dashed
+    semilogy(SNR_dB, max(aBERrt_ff_est(d,:),flrI), ':', 'Color', cDet{d}, 'LineWidth', lwB); % FF estimated: dotted
 end
 for d = 1:4
-    semilogy(SNRf, max(squeeze(BERidd_nf(d,3,:)).',flrI), '-.', 'Color', cDet{d}, 'LineWidth', lwB); % NF IDD-3: dash-dot
+    semilogy(SNRf, max(squeeze(BERidd_nf(d,3,:)).',flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
+        'LineWidth', lwB, 'MarkerSize', msB, 'MarkerIndices', 1:20:numel(SNRf)); % NF IDD-3: dotted + marker
 end
 hS5 = gobjects(1,3);
-hS5(1) = semilogy(nan,nan,':', 'Color','k','LineWidth',lwB);
-hS5(2) = semilogy(nan,nan,'--','Color','k','LineWidth',lwB);
-hS5(3) = semilogy(nan,nan,'-.','Color','k','LineWidth',lwB);
+hS5(1) = semilogy(nan,nan,'-', 'Color','k','LineWidth',lwB);
+hS5(2) = semilogy(nan,nan,':', 'Color','k','LineWidth',lwB);
+hS5(3) = semilogy(nan,nan,':o','Color','k','LineWidth',lwB,'MarkerSize',msB);
 set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
