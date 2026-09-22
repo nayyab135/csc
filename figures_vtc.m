@@ -10,12 +10,14 @@
 %    seSamp_pf   {4}         per-user SE samples, perfect CSI
 %    seSamp_est  {4}         per-user SE samples, estimated CSI
 %
-%  Formatting (per request): no titles; axis labels FontSize 14 bold; bold
-%  tick labels; marker size 7; legend ItemTokenSize width 20; south legend.
-%  Curve thickness / colours / markers follow the attached code.
+%  CONVENTIONS (per request), consistent across ALL figures:
+%    colour = detector:  Linear = red, SIC = maroon, List-SIC = dark blue,
+%                        List+CrossAP (proposed) = dark green.
+%    line style = CSI:   perfect = solid,  estimated = dotted.
+%  Formatting: no titles; axis labels FontSize 14 bold; bold tick labels;
+%              marker size 7; legend ItemTokenSize width 20; south legend.
 % ==========================================================================
 
-% ---- required-variable checks ----
 req = {'SNR_dB','si_cdf','L','N','Ksweep','cLin','cSIC','cList','cXap', ...
        'Bbar_xap','Bbar_cluster','aBERrt_pf','aBERrt_est','aBERrt_ff_est', ...
        'seSamp_pf','seSamp_est'};
@@ -25,27 +27,32 @@ end
 if ~exist('Kbar_fh','var'), Kbar_fh = mean(Bbar_cluster); end
 SNR_dB = SNR_dB(:).';   nSNR = numel(SNR_dB);
 
-% ---- style (matches the attached code) ----
-cDet  = {[0.85 0.10 0.10],[0.55 0 0],[0.20 0.20 0.75],[0.00 0.39 0.00]};
-mk    = {'-o','-s','-^','-d'};
-mkpt  = {'o','s','^','d'};
+% ---- style ----
+cDet  = {[0.85 0.10 0.10], ...   % 1 Linear (L-MMSE)  = red
+         [0.55 0.00 0.00], ...   % 2 SIC              = maroon
+         [0.20 0.20 0.75], ...   % 3 List-SIC         = dark blue
+         [0.00 0.39 0.00]};      % 4 List+CrossAP     = dark green
+mk    = {'-o','-s','-^','-d'};                 % solid + marker (perfect)
+mkpt  = {'o','s','^','d'};                      % markers only
 nmDet = {'Linear (L-MMSE)','SIC','List-SIC','List+CrossAP (proposed)'};
 flrI  = 1e-6;
-msB   = 7;                 % marker size (per request)
-xt5   = 0:10:max(SNR_dB);
-tokW  = 20;                % legend ItemTokenSize width (per request)
+msB   = 7;                 % marker size
+tokW  = 20;                % legend ItemTokenSize width
+xmax  = 25;                % SNR axis upper limit (per request)
+xtSNR = 0:5:25;            % SNR ticks
+cdfXL = [2.5 3.91];        % right-panel x-limits (per request)
+cdfYL = [0 6.5];           % right-panel y-limits (per request; see note in chat)
 
-% ---- IDD illustrative model parameters (from attached code) ----
+% ---- IDD illustrative model (from attached code) ----
 SNRf = SNR_dB(1):0.25:SNR_dB(end);
 cumGlog = [0.40 0.65 0.85; 0.45 0.70 1.00; 0.60 0.92 1.10; 0.80 1.15 1.30];
 penlog  = [0.17; 0.28; 0.19; 0.20];
 smoothWin_dB = 4.0;  smid = 12;  sw = 10;
-
 BERidd_pf = genIDD(aBERrt_pf,  SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWin_dB, flrI);
 BERidd_nf = genIDD(aBERrt_est, SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWin_dB, flrI);
 
 %% ====================================================================
-%  FIGURE 1  (perfect CSI):  left = 8 BER (4 no-IDD + 4 IDD-3),  right = SE CDF
+%  FIGURE 1 (perfect CSI): left = 8 BER (4 no-IDD solid + 4 IDD-3), right = SE CDF
 %% ====================================================================
 lwB = 2.5;
 figure('Name','VTC-Fig1','Position',[60 120 1250 560]);
@@ -55,7 +62,7 @@ nexttile; hold on; box on; grid on;
 hB = gobjects(1,4);
 for d = 1:4
     hB(d) = semilogy(SNR_dB, max(aBERrt_pf(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);
+        'LineWidth', lwB, 'MarkerSize', msB);                    % perfect: solid
 end
 for d = 1:4
     semilogy(SNRf, max(squeeze(BERidd_pf(d,3,:)).',flrI), '-.', 'Color', cDet{d}, 'LineWidth', lwB);
@@ -63,7 +70,7 @@ end
 hS = gobjects(1,2);
 hS(1) = semilogy(nan,nan,'-','Color','k','LineWidth',lwB);
 hS(2) = semilogy(nan,nan,'-.','Color','k','LineWidth',lwB);
-set(gca,'YScale','log','XTick',xt5,'XLim',[0 max(SNR_dB)]); ylim([1e-5 1]);
+set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
 nexttile; hold on; box on; grid on;
@@ -72,6 +79,7 @@ for d = 1:4
     plot(xs, cv, mk{d}, 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
         'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));
 end
+xlim(cdfXL); ylim(cdfYL);
 styleAxis(gca,'Per-user effective SE [bps/Hz]','CDF');
 
 lgd = legend([hB(:); hS(:)], [nmDet(:); {'No IDD';'IDD iter 3'}], ...
@@ -79,12 +87,12 @@ lgd = legend([hB(:); hS(:)], [nmDet(:); {'No IDD';'IDD iter 3'}], ...
 lgd.Layout.Tile = 'south';  lgd.ItemTokenSize = [tokW 18];
 
 %% ====================================================================
-%  FIGURE 2  (perfect CSI):  left = fronthaul (3),  right = complexity (4)
+%  FIGURE 2 (perfect CSI): left = fronthaul (3), right = complexity (4)
 %% ====================================================================
-figFronthaulComplexity('VTC-Fig2');
+figFronthaulComplexity('VTC-Fig2', xmax, xtSNR, tokW, msB);
 
 %% ====================================================================
-%  FIGURE 3:  left = 8 BER (4 perfect + 4 estimated),  right = SE CDF (estimated)
+%  FIGURE 3: left = 8 BER (4 perfect solid + 4 estimated DOTTED), right = SE CDF (est)
 %% ====================================================================
 lwB = 2.5;
 figure('Name','VTC-Fig3','Position',[60 120 1250 560]);
@@ -94,23 +102,25 @@ nexttile; hold on; box on; grid on;
 hB3 = gobjects(1,4);
 for d = 1:4
     hB3(d) = semilogy(SNR_dB, max(aBERrt_pf(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);              % perfect: solid + marker
+        'LineWidth', lwB, 'MarkerSize', msB);                    % perfect: solid + marker
 end
 for d = 1:4
-    semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), '--', 'Color', cDet{d}, 'LineWidth', lwB);  % estimated: dashed
+    semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
+        'LineWidth', lwB, 'MarkerSize', msB);                    % estimated: dotted + marker
 end
 hS3 = gobjects(1,2);
 hS3(1) = semilogy(nan,nan,'-', 'Color','k','LineWidth',lwB);
-hS3(2) = semilogy(nan,nan,'--','Color','k','LineWidth',lwB);
-set(gca,'YScale','log','XTick',xt5,'XLim',[0 max(SNR_dB)]); ylim([1e-5 1]);
+hS3(2) = semilogy(nan,nan,':','Color','k','LineWidth',lwB);
+set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
 nexttile; hold on; box on; grid on;
 for d = 1:4
     xs = sort(seSamp_est{d});  cv = (1:numel(xs)).'/numel(xs);
-    plot(xs, cv, mk{d}, 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
+    plot(xs, cv, [':' mkpt{d}], 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
         'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));
 end
+xlim(cdfXL); ylim(cdfYL);
 styleAxis(gca,'Per-user effective SE [bps/Hz]','CDF');
 
 lgd = legend([hB3(:); hS3(:)], [nmDet(:); {'Perfect CSI';'Estimated CSI'}], ...
@@ -118,33 +128,34 @@ lgd = legend([hB3(:); hS3(:)], [nmDet(:); {'Perfect CSI';'Estimated CSI'}], ...
 lgd.Layout.Tile = 'south';  lgd.ItemTokenSize = [tokW 18];
 
 %% ====================================================================
-%  FIGURE 4:  same as Figure 2 (CSI-independent cost)
+%  FIGURE 4: same as Figure 2 (CSI-independent cost)
 %% ====================================================================
-figFronthaulComplexity('VTC-Fig4');
+figFronthaulComplexity('VTC-Fig4', xmax, xtSNR, tokW, msB);
 
 %% ====================================================================
-%  FIGURE 5  (single figure):  12 BER curves
-%    4 near-field estimated + 4 far-field estimated + 4 IDD-3 near-field
+%  FIGURE 5 (single figure): 12 BER curves, all estimated CSI
+%    NF estimated (dotted+marker) + FF estimated (dashed) + NF IDD-3 (dash-dot)
+%    colour = detector.  Line style separates the three families.
 %% ====================================================================
 lwB = 2.5;
 figure('Name','VTC-Fig5','Position',[80 120 760 620]);
 hold on; box on; grid on;
 hD = gobjects(1,4);
 for d = 1:4
-    hD(d) = semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);                 % NF estimated: solid + marker
+    hD(d) = semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
+        'LineWidth', lwB, 'MarkerSize', msB);                    % NF estimated: dotted + marker
 end
 for d = 1:4
-    semilogy(SNR_dB, max(aBERrt_ff_est(d,:),flrI), '--', 'Color', cDet{d}, 'LineWidth', lwB);  % FF estimated: dashed
+    semilogy(SNR_dB, max(aBERrt_ff_est(d,:),flrI), '--', 'Color', cDet{d}, 'LineWidth', lwB); % FF estimated: dashed
 end
 for d = 1:4
-    semilogy(SNRf, max(squeeze(BERidd_nf(d,3,:)).',flrI), '-.', 'Color', cDet{d}, 'LineWidth', lwB); % IDD-3 NF: dash-dot
+    semilogy(SNRf, max(squeeze(BERidd_nf(d,3,:)).',flrI), '-.', 'Color', cDet{d}, 'LineWidth', lwB); % NF IDD-3: dash-dot
 end
 hS5 = gobjects(1,3);
-hS5(1) = semilogy(nan,nan,'-', 'Color','k','LineWidth',lwB);
+hS5(1) = semilogy(nan,nan,':', 'Color','k','LineWidth',lwB);
 hS5(2) = semilogy(nan,nan,'--','Color','k','LineWidth',lwB);
 hS5(3) = semilogy(nan,nan,'-.','Color','k','LineWidth',lwB);
-set(gca,'YScale','log','XTick',xt5,'XLim',[0 max(SNR_dB)]); ylim([1e-5 1]);
+set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
 lgd = legend([hD(:); hS5(:)], ...
@@ -156,8 +167,7 @@ lgd.ItemTokenSize = [tokW 18];
 %  LOCAL FUNCTIONS
 % ==========================================================================
 function styleAxis(ax, xtxt, ytxt)
-    % bold tick labels; axis labels FontSize 14 bold
-    set(ax, 'FontWeight', 'bold');
+    set(ax, 'FontWeight', 'bold');                               % bold tick labels
     xlabel(ax, xtxt, 'FontSize', 14, 'FontWeight', 'bold');
     ylabel(ax, ytxt, 'FontSize', 14, 'FontWeight', 'bold');
 end
@@ -187,9 +197,8 @@ function BERidd = genIDD(aBER, SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWi
     BERidd = cummin(BERidd, 2);
 end
 
-function figFronthaulComplexity(figName)
-    % Figures 2 and 4: left = fronthaul (3 curves), right = complexity (4)
-    cDet = {[0.85 0.10 0.10],[0.55 0 0],[0.20 0.20 0.75],[0.00 0.39 0.00]};
+function figFronthaulComplexity(figName, xmax, xtSNR, tokW, msB)
+    cDet = {[0.85 0.10 0.10],[0.55 0.00 0.00],[0.20 0.20 0.75],[0.00 0.39 0.00]};
     SNR_dB = evalin('base','SNR_dB'); SNR_dB = SNR_dB(:).';
     L        = evalin('base','L');       N        = evalin('base','N');
     Ksweep   = evalin('base','Ksweep');
@@ -197,21 +206,20 @@ function figFronthaulComplexity(figName)
     cList    = evalin('base','cList');   cXap     = evalin('base','cXap');
     Bbar_xap = evalin('base','Bbar_xap');
     Bbar_cluster = evalin('base','Bbar_cluster');
-    lwB = 3.0;  msB = 7;  xt5 = 0:10:max(SNR_dB);  tokW = 20;
+    lwB = 3.0;
 
     figure('Name',figName,'Position',[60 120 1250 560]);
     tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
 
-    nexttile; hold on; box on; grid on;
+    nexttile; hold on; box on; grid on;                          % LEFT: fronthaul (0..25 dB)
     hf1 = plot(SNR_dB, L*ones(size(SNR_dB)), ':k', 'LineWidth', 1.8);
     hf2 = plot(SNR_dB, Bbar_xap, '-d', 'Color', cDet{4}, 'LineWidth', lwB, 'MarkerSize', msB);
-    hf3 = plot(SNR_dB, Bbar_cluster, '--s', 'Color', cDet{2}, 'LineWidth', lwB, 'MarkerSize', msB);
-    set(gca,'XTick',xt5,'XLim',[0 max(SNR_dB)]); ylim([0 L+0.5]);
-    set(gca,'FontWeight','bold');
+    hf3 = plot(SNR_dB, Bbar_cluster, '-s', 'Color', cDet{3}, 'LineWidth', lwB, 'MarkerSize', msB);
+    set(gca,'XTick',xtSNR,'XLim',[0 xmax]); ylim([0 L+0.5]); set(gca,'FontWeight','bold');
     xlabel('SNR [dB]','FontSize',14,'FontWeight','bold');
     ylabel('Avg fronthaul scalars per user','FontSize',14,'FontWeight','bold');
 
-    nexttile; hold on; box on; grid on;
+    nexttile; hold on; box on; grid on;                          % RIGHT: complexity (unchanged)
     hc1 = plot(Ksweep, cXap,  '-d', 'Color', cDet{4}, 'LineWidth', lwB, 'MarkerSize', msB);
     hc2 = plot(Ksweep, cSIC,  '-s', 'Color', cDet{2}, 'LineWidth', lwB, 'MarkerSize', msB);
     hc3 = plot(Ksweep, cLin,  '-o', 'Color', cDet{1}, 'LineWidth', lwB, 'MarkerSize', msB);
@@ -220,7 +228,6 @@ function figFronthaulComplexity(figName)
     xlabel('Number of users K','FontSize',14,'FontWeight','bold');
     ylabel('Complex mult. per channel use','FontSize',14,'FontWeight','bold');
 
-    % one shared "proposed" entry (same dark-green '-d' style in both panels)
     lgd = legend([hf1 hf2 hf3 hc2 hc3 hc4], ...
         {'All-AP bound L','List+CrossAP (proposed)','Cluster-only', ...
          'SIC','Linear (L-MMSE)','List-SIC'}, ...
