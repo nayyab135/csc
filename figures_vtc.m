@@ -117,8 +117,8 @@ styleAxis(gca,'SNR [dB]','BER');
 nexttile; hold on; box on; grid on;
 for d = 1:4
     xs = sort(seSamp_est{d});  cv = (1:numel(xs)).'/numel(xs);
-    plot(xs, cv, mk{d}, 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
-        'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));   % estimated CSI, SOLID
+    plot(xs, cv, [':' mkpt{d}], 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
+        'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));   % estimated CSI, DOTTED + marker
 end
 xlim(cdfXL); ylim(cdfYL);
 styleAxis(gca,'Per-user effective SE [bps/Hz]','CDF');
