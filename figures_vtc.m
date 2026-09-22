@@ -117,8 +117,8 @@ styleAxis(gca,'SNR [dB]','BER');
 nexttile; hold on; box on; grid on;
 for d = 1:4
     xs = sort(seSamp_est{d});  cv = (1:numel(xs)).'/numel(xs);
-    plot(xs, cv, [':' mkpt{d}], 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
-        'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));
+    plot(xs, cv, mk{d}, 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
+        'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));   % estimated CSI, SOLID
 end
 xlim(cdfXL); ylim(cdfYL);
 styleAxis(gca,'Per-user effective SE [bps/Hz]','CDF');
@@ -140,28 +140,33 @@ figFronthaulComplexity('VTC-Fig4', xmax, xtSNR, tokW, msB);
 lwB = 2.5;
 figure('Name','VTC-Fig5','Position',[80 120 760 620]);
 hold on; box on; grid on;
+% prominent, distinct colours for the IDD curves (solid)
+cIDD = {[0.93 0.00 0.55], [1.00 0.50 0.00], [0.00 0.70 0.90], [0.50 0.10 0.90]};
 hD = gobjects(1,4);
 for d = 1:4
     hD(d) = semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
         'LineWidth', lwB, 'MarkerSize', msB);                    % NF estimated: solid + marker
 end
 for d = 1:4
-    semilogy(SNR_dB, max(aBERrt_ff_est(d,:),flrI), ':', 'Color', cDet{d}, 'LineWidth', lwB); % FF estimated: dotted
+    semilogy(SNR_dB, max(aBERrt_ff_est(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
+        'LineWidth', lwB, 'MarkerSize', msB);                    % FF estimated: dotted + marker
 end
+hI = gobjects(1,4);
 for d = 1:4
-    semilogy(SNRf, max(squeeze(BERidd_nf(d,3,:)).',flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB, 'MarkerIndices', 1:20:numel(SNRf)); % NF IDD-3: dotted + marker
+    hI(d) = semilogy(SNRf, max(squeeze(BERidd_nf(d,3,:)).',flrI), '-', 'Color', cIDD{d}, ...
+        'LineWidth', lwB + 0.4);                                 % NF IDD-3: solid, prominent colour
 end
-hS5 = gobjects(1,3);
-hS5(1) = semilogy(nan,nan,'-', 'Color','k','LineWidth',lwB);
-hS5(2) = semilogy(nan,nan,':', 'Color','k','LineWidth',lwB);
-hS5(3) = semilogy(nan,nan,':o','Color','k','LineWidth',lwB,'MarkerSize',msB);
+hK = gobjects(1,2);
+hK(1) = semilogy(nan,nan,'-o','Color','k','LineWidth',lwB,'MarkerSize',msB);   % NF est key
+hK(2) = semilogy(nan,nan,':o','Color','k','LineWidth',lwB,'MarkerSize',msB);   % FF est key
 set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
-lgd = legend([hD(:); hS5(:)], ...
-    [nmDet(:); {'Near-field, estimated';'Far-field, estimated';'Near-field, IDD iter 3'}], ...
-    'NumColumns', 3, 'FontSize', 9, 'Box', 'on', 'Location', 'southoutside');
+lgd = legend([hD(:); hK(:); hI(:)], ...
+    [nmDet(:); ...
+     {'Near-field, estimated (solid)';'Far-field, estimated (dotted)'}; ...
+     {'IDD-3: Linear';'IDD-3: SIC';'IDD-3: List-SIC';'IDD-3: List+CrossAP'}], ...
+    'NumColumns', 3, 'FontSize', 8, 'Box', 'on', 'Location', 'southoutside');
 lgd.ItemTokenSize = [tokW 18];
 
 % ==========================================================================
