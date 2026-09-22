@@ -99,8 +99,8 @@ lw3  = 2.5;                 % Fig 3 curves: original (non-bold) weight
 lwI  = 2.2;  msI = 5;       % inset line width / marker size
 % Inset boxes are placed in normalized FIGURE coordinates [x y width height].
 % To move a zoom box, just edit the x (left) and y (bottom) numbers below.
-insetPosL = [0.135 0.295 0.160 0.235];   % LEFT (BER) zoom box  <-- move me
-insetPosR = [0.575 0.590 0.160 0.250];   % RIGHT (CDF) zoom box <-- move me
+insetPosL = [0.105 0.295 0.160 0.235];   % LEFT (BER) zoom box  <-- move me
+insetPosR = [0.545 0.590 0.160 0.250];   % RIGHT (CDF) zoom box <-- move me
 figure('Name','VTC-Fig3','Position',[60 120 1250 560]);
 tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
 
