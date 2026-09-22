@@ -97,6 +97,10 @@ figFronthaulComplexity('VTC-Fig2', xmax, xtSNR, tokW, msB);
 %% ====================================================================
 lw3  = 2.5;                 % Fig 3 curves: original (non-bold) weight
 lwI  = 2.2;  msI = 5;       % inset line width / marker size
+% Inset boxes are placed in normalized FIGURE coordinates [x y width height].
+% To move a zoom box, just edit the x (left) and y (bottom) numbers below.
+insetPosL = [0.135 0.295 0.160 0.235];   % LEFT (BER) zoom box  <-- move me
+insetPosR = [0.600 0.590 0.160 0.250];   % RIGHT (CDF) zoom box <-- move me
 figure('Name','VTC-Fig3','Position',[60 120 1250 560]);
 tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
 
@@ -117,8 +121,6 @@ set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 % zoom window: SNR 20-25 dB (x) x 1e-3..1e-2 (y)
 zx1 = 20;  zx2 = 25;  zy1 = 1e-3;  zy2 = 1e-2;
-rectangle('Position',[zx1 zy1 zx2-zx1 zy2-zy1],'EdgeColor',[0.35 0.35 0.35], ...
-    'LineWidth',1.2,'LineStyle','-');
 
 axR3 = nexttile; hold on; box on; grid on;
 for d = 1:4
@@ -130,16 +132,13 @@ xlim(cdfXL); ylim(cdfYL);
 styleAxis(gca,'Per-user effective SE [bps/Hz]','CDF');
 % zoom window: SE 2.6..2.8, CDF 0.02..0.09 (where curves bunch)
 qx1 = 2.6;  qx2 = 2.8;  qy1 = 0.02;  qy2 = 0.09;
-rectangle('Position',[qx1 qy1 qx2-qx1 qy2-qy1],'EdgeColor',[0.35 0.35 0.35], ...
-    'LineWidth',1.2,'LineStyle','-');
 
 lgd = legend([hB3(:); hS3(:)], [nmDet(:); {'Perfect CSI';'Estimated CSI'}], ...
     'NumColumns', 3, 'FontSize', 9, 'Box', 'on');
 lgd.Layout.Tile = 'south';  lgd.ItemTokenSize = [tokW 18];
 
-% ---- inset on LEFT (BER) panel: zoom the high-SNR / estimated-floor region ----
-drawnow;  pL = axL3.Position;
-axIL = axes('Position',[pL(1)+0.115*pL(3), pL(2)+0.135*pL(4), 0.42*pL(3), 0.34*pL(4)]);
+% ---- inset on LEFT (BER) panel: zoom SNR 20-25 dB x 1e-3..1e-2 ----
+axIL = axes('Position', insetPosL);
 hold(axIL,'on'); box(axIL,'on'); grid(axIL,'on'); set(axIL,'YScale','log');
 for d = 1:4
     semilogy(axIL, SNR_dB, max(aBERrt_pf(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
@@ -150,11 +149,9 @@ for d = 1:4
         'LineWidth', lwI, 'MarkerSize', msI);
 end
 set(axIL,'XLim',[zx1 zx2],'YLim',[zy1 zy2],'FontWeight','bold','FontSize',8);
-title(axIL,sprintf('zoom: %g-%g dB',zx1,zx2),'FontSize',8,'FontWeight','bold');
 
-% ---- inset on RIGHT (CDF) panel: zoom SE 3.0-3.5, CDF 0.1-0.3 ----
-pR = axR3.Position;
-axIR = axes('Position',[pR(1)+0.085*pR(3), pR(2)+0.560*pR(4), 0.42*pR(3), 0.36*pR(4)]);
+% ---- inset on RIGHT (CDF) panel: zoom SE 2.6-2.8 x CDF 0.02..0.09 ----
+axIR = axes('Position', insetPosR);
 hold(axIR,'on'); box(axIR,'on'); grid(axIR,'on');
 for d = 1:4
     xs = sort(seSamp_est{d});  cv = (1:numel(xs)).'/numel(xs);
@@ -162,7 +159,6 @@ for d = 1:4
         'MarkerIndices', 1:max(1,round(numel(xs)/20)):numel(xs));
 end
 set(axIR,'XLim',[qx1 qx2],'YLim',[qy1 qy2],'FontWeight','bold','FontSize',8);
-title(axIR,'zoom: 2.6-2.8','FontSize',8,'FontWeight','bold');
 
 %% ====================================================================
 %  FIGURE 4: same as Figure 2 (CSI-independent cost)
@@ -194,7 +190,7 @@ hK = gobjects(1,3);
 hK(1) = semilogy(nan,nan,'-o','Color','k','LineWidth',lw5,'MarkerSize',msB);   % NF est key
 hK(2) = semilogy(nan,nan,':o','Color','k','LineWidth',lw5,'MarkerSize',msB);   % FF est key
 hK(3) = semilogy(nan,nan,':', 'Color','k','LineWidth',lw5 + 1.0);              % IDD-3 key (large dotted)
-set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
+set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-4 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
 lgd = legend([hD(:); hK(:)], ...
