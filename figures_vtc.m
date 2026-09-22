@@ -41,7 +41,7 @@ tokW  = 20;                % legend ItemTokenSize width
 xmax  = 25;                % SNR axis upper limit (per request)
 xtSNR = 0:5:25;            % SNR ticks
 cdfXL = [2.5 3.91];        % right-panel x-limits (per request)
-cdfYL = [0 6.5];           % right-panel y-limits (per request; see note in chat)
+cdfYL = [0 0.65];          % right-panel (CDF) y-limits: Fig 1 right & Fig 3 right
 
 % ---- IDD illustrative model (from attached code) ----
 SNRf = SNR_dB(1):0.25:SNR_dB(end);
@@ -225,7 +225,7 @@ function figFronthaulComplexity(figName, xmax, xtSNR, tokW, msB)
     hc2 = plot(Ksweep, cSIC,  '-s', 'Color', cDet{2}, 'LineWidth', lwB, 'MarkerSize', msB);
     hc3 = plot(Ksweep, cLin,  '-o', 'Color', cDet{1}, 'LineWidth', lwB, 'MarkerSize', msB);
     hc4 = plot(Ksweep, cList, '-^', 'Color', cDet{3}, 'LineWidth', lwB, 'MarkerSize', msB);
-    set(gca,'XTick',Ksweep); set(gca,'FontWeight','bold'); ylim([0 0.65]);
+    set(gca,'XTick',Ksweep); set(gca,'FontWeight','bold');
     xlabel('Number of users K','FontSize',14,'FontWeight','bold');
     ylabel('Complex mult. per channel use','FontSize',14,'FontWeight','bold');
 
