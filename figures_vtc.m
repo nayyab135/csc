@@ -225,7 +225,7 @@ function figFronthaulComplexity(figName, xmax, xtSNR, tokW, msB)
     hc2 = plot(Ksweep, cSIC,  '-s', 'Color', cDet{2}, 'LineWidth', lwB, 'MarkerSize', msB);
     hc3 = plot(Ksweep, cLin,  '-o', 'Color', cDet{1}, 'LineWidth', lwB, 'MarkerSize', msB);
     hc4 = plot(Ksweep, cList, '-^', 'Color', cDet{3}, 'LineWidth', lwB, 'MarkerSize', msB);
-    set(gca,'XTick',Ksweep); set(gca,'FontWeight','bold');
+    set(gca,'XTick',Ksweep); set(gca,'FontWeight','bold'); ylim([0 0.65]);
     xlabel('Number of users K','FontSize',14,'FontWeight','bold');
     ylabel('Complex mult. per channel use','FontSize',14,'FontWeight','bold');
 
