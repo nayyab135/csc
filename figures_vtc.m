@@ -95,8 +95,8 @@ figFronthaulComplexity('VTC-Fig2', xmax, xtSNR, tokW, msB);
 %  FIGURE 3: left = 8 BER (4 perfect DOTTED + 4 estimated SOLID), right = SE CDF (est, solid)
 %           + zoom insets on both panels where curves overlap
 %% ====================================================================
-lw3  = 3.4;                 % bolder curves for Fig 3
-lwI  = 2.4;  msI = 5;       % inset line width / marker size
+lw3  = 2.5;                 % Fig 3 curves: original (non-bold) weight
+lwI  = 2.2;  msI = 5;       % inset line width / marker size
 figure('Name','VTC-Fig3','Position',[60 120 1250 560]);
 tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
 
@@ -115,8 +115,8 @@ hS3(1) = semilogy(nan,nan,':', 'Color','k','LineWidth',lw3);
 hS3(2) = semilogy(nan,nan,'-','Color','k','LineWidth',lw3);
 set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
-% zoom window: high-SNR tail (x) x estimated-CSI floor (y = 1e-3..1e-2)
-zx1 = max(SNR_dB(end)-5, SNR_dB(1));  zx2 = SNR_dB(end);  zy1 = 1e-3;  zy2 = 1e-2;
+% zoom window: SNR 20-25 dB (x) x 1e-3..1e-2 (y)
+zx1 = 20;  zx2 = 25;  zy1 = 1e-3;  zy2 = 1e-2;
 rectangle('Position',[zx1 zy1 zx2-zx1 zy2-zy1],'EdgeColor',[0.35 0.35 0.35], ...
     'LineWidth',1.2,'LineStyle','-');
 
@@ -128,8 +128,8 @@ for d = 1:4
 end
 xlim(cdfXL); ylim(cdfYL);
 styleAxis(gca,'Per-user effective SE [bps/Hz]','CDF');
-% zoom window: SE 3.0..3.5, CDF 0.1..0.3 (where curves bunch)
-qx1 = 3.0;  qx2 = 3.5;  qy1 = 0.10;  qy2 = 0.30;
+% zoom window: SE 2.6..2.8, CDF 0.02..0.09 (where curves bunch)
+qx1 = 2.6;  qx2 = 2.8;  qy1 = 0.02;  qy2 = 0.09;
 rectangle('Position',[qx1 qy1 qx2-qx1 qy2-qy1],'EdgeColor',[0.35 0.35 0.35], ...
     'LineWidth',1.2,'LineStyle','-');
 
@@ -162,7 +162,7 @@ for d = 1:4
         'MarkerIndices', 1:max(1,round(numel(xs)/20)):numel(xs));
 end
 set(axIR,'XLim',[qx1 qx2],'YLim',[qy1 qy2],'FontWeight','bold','FontSize',8);
-title(axIR,'zoom: 3.0-3.5','FontSize',8,'FontWeight','bold');
+title(axIR,'zoom: 2.6-2.8','FontSize',8,'FontWeight','bold');
 
 %% ====================================================================
 %  FIGURE 4: same as Figure 2 (CSI-independent cost)
@@ -170,18 +170,13 @@ title(axIR,'zoom: 3.0-3.5','FontSize',8,'FontWeight','bold');
 figFronthaulComplexity('VTC-Fig4', xmax, xtSNR, tokW, msB);
 
 %% ====================================================================
-%  FIGURE 5 (two subfigures):
-%    LEFT  = BER vs SNR: NF estimated (solid+marker) + FF estimated (dotted+marker)
-%                        + NF IDD-3 (large dotted).  colour = detector.
-%    RIGHT = Coded BER vs IDD iteration (0..3) at fixed SNR = 15 dB,
-%            near-field + estimated CSI, one curve per detector.
+%  FIGURE 5 (single figure): 12 BER curves, all estimated CSI
+%    NF estimated (solid+marker) + FF estimated (dotted+marker) + NF IDD-3 (large dotted)
+%    colour = detector.  Line style separates the three families.
 %% ====================================================================
-lw5 = 3.4;                  % bolder curves for Fig 5
-snrTarget = 15;             % right subfigure: fixed SNR operating point
-figure('Name','VTC-Fig5','Position',[60 120 1250 600]);
-tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
-
-nexttile; hold on; box on; grid on;                              % LEFT: BER vs SNR
+lw5 = 3.0;                  % slightly reduced weight (was 3.4)
+figure('Name','VTC-Fig5','Position',[80 120 760 620]);
+hold on; box on; grid on;
 hD = gobjects(1,4);
 for d = 1:4
     hD(d) = semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
@@ -202,21 +197,10 @@ hK(3) = semilogy(nan,nan,':', 'Color','k','LineWidth',lw5 + 1.0);              %
 set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
-nexttile; hold on; box on; grid on;                              % RIGHT: coded BER vs IDD iteration
-[~, it15] = min(abs(SNRf - snrTarget));
-iterAx = 0:3;
-for d = 1:4
-    yIter = [baseS_nf(d,it15), squeeze(BERidd_nf(d,1:3,it15)).'];  % iter 0,1,2,3
-    semilogy(iterAx, max(yIter,flrI), mk{d}, 'Color', cDet{d}, ...
-        'LineWidth', lw5, 'MarkerSize', msB);
-end
-set(gca,'YScale','log','XTick',iterAx,'XLim',[-0.15 3.15]); ylim([1e-5 1e-2]);
-styleAxis(gca,'IDD iterations','Coded BER');
-
 lgd = legend([hD(:); hK(:)], ...
     [nmDet(:); {'Near-field, estimated';'Far-field, estimated';'Near-field, IDD iter 3'}], ...
-    'NumColumns', 3, 'FontSize', 9, 'Box', 'on');
-lgd.Layout.Tile = 'south';  lgd.ItemTokenSize = [tokW 18];
+    'NumColumns', 3, 'FontSize', 9, 'Box', 'on', 'Location', 'southoutside');
+lgd.ItemTokenSize = [tokW 18];
 
 % ==========================================================================
 %  LOCAL FUNCTIONS
