@@ -92,7 +92,7 @@ lgd.Layout.Tile = 'south';  lgd.ItemTokenSize = [tokW 18];
 figFronthaulComplexity('VTC-Fig2', xmax, xtSNR, tokW, msB);
 
 %% ====================================================================
-%  FIGURE 3: left = 8 BER (4 perfect solid + 4 estimated DOTTED), right = SE CDF (est)
+%  FIGURE 3: left = 8 BER (4 perfect DOTTED + 4 estimated SOLID), right = SE CDF (est, solid)
 %% ====================================================================
 lwB = 2.5;
 figure('Name','VTC-Fig3','Position',[60 120 1250 560]);
@@ -101,24 +101,24 @@ tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
 nexttile; hold on; box on; grid on;
 hB3 = gobjects(1,4);
 for d = 1:4
-    hB3(d) = semilogy(SNR_dB, max(aBERrt_pf(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);                    % perfect: solid + marker
+    hB3(d) = semilogy(SNR_dB, max(aBERrt_pf(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
+        'LineWidth', lwB, 'MarkerSize', msB);                    % perfect: dotted + marker
 end
 for d = 1:4
-    semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);                    % estimated: dotted + marker
+    semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
+        'LineWidth', lwB, 'MarkerSize', msB);                    % estimated: solid + marker
 end
 hS3 = gobjects(1,2);
-hS3(1) = semilogy(nan,nan,'-', 'Color','k','LineWidth',lwB);
-hS3(2) = semilogy(nan,nan,':','Color','k','LineWidth',lwB);
+hS3(1) = semilogy(nan,nan,':', 'Color','k','LineWidth',lwB);
+hS3(2) = semilogy(nan,nan,'-','Color','k','LineWidth',lwB);
 set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
 nexttile; hold on; box on; grid on;
 for d = 1:4
     xs = sort(seSamp_est{d});  cv = (1:numel(xs)).'/numel(xs);
-    plot(xs, cv, [':' mkpt{d}], 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
-        'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));   % estimated CSI, DOTTED + marker
+    plot(xs, cv, mk{d}, 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
+        'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));   % estimated CSI, SOLID + marker
 end
 xlim(cdfXL); ylim(cdfYL);
 styleAxis(gca,'Per-user effective SE [bps/Hz]','CDF');
