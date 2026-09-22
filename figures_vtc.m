@@ -117,7 +117,7 @@ end
 hS3 = gobjects(1,2);
 hS3(1) = semilogy(nan,nan,':', 'Color','k','LineWidth',lw3);
 hS3(2) = semilogy(nan,nan,'-','Color','k','LineWidth',lw3);
-set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
+set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-4 1]);
 styleAxis(gca,'SNR [dB]','BER');
 % zoom window: SNR 20-25 dB (x) x 1e-3..1e-2 (y)
 zx1 = 20;  zx2 = 25;  zy1 = 1e-3;  zy2 = 1e-2;
