@@ -48,8 +48,8 @@ SNRf = SNR_dB(1):0.25:SNR_dB(end);
 cumGlog = [0.40 0.65 0.85; 0.45 0.70 1.00; 0.60 0.92 1.10; 0.80 1.15 1.30];
 penlog  = [0.17; 0.28; 0.19; 0.20];
 smoothWin_dB = 4.0;  smid = 12;  sw = 10;
-BERidd_pf = genIDD(aBERrt_pf,  SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWin_dB, flrI);
-BERidd_nf = genIDD(aBERrt_est, SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWin_dB, flrI);
+BERidd_pf            = genIDD(aBERrt_pf,  SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWin_dB, flrI);
+[BERidd_nf,baseS_nf] = genIDD(aBERrt_est, SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWin_dB, flrI);
 
 %% ====================================================================
 %  FIGURE 1 (perfect CSI): left = 8 BER (4 no-IDD solid + 4 IDD-3), right = SE CDF
@@ -93,39 +93,76 @@ figFronthaulComplexity('VTC-Fig2', xmax, xtSNR, tokW, msB);
 
 %% ====================================================================
 %  FIGURE 3: left = 8 BER (4 perfect DOTTED + 4 estimated SOLID), right = SE CDF (est, solid)
+%           + zoom insets on both panels where curves overlap
 %% ====================================================================
-lwB = 2.5;
+lw3  = 3.4;                 % bolder curves for Fig 3
+lwI  = 2.4;  msI = 5;       % inset line width / marker size
 figure('Name','VTC-Fig3','Position',[60 120 1250 560]);
 tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
 
-nexttile; hold on; box on; grid on;
+axL3 = nexttile; hold on; box on; grid on;
 hB3 = gobjects(1,4);
 for d = 1:4
     hB3(d) = semilogy(SNR_dB, max(aBERrt_pf(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);                    % perfect: dotted + marker
+        'LineWidth', lw3, 'MarkerSize', msB);                   % perfect: dotted + marker
 end
 for d = 1:4
     semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);                    % estimated: solid + marker
+        'LineWidth', lw3, 'MarkerSize', msB);                   % estimated: solid + marker
 end
 hS3 = gobjects(1,2);
-hS3(1) = semilogy(nan,nan,':', 'Color','k','LineWidth',lwB);
-hS3(2) = semilogy(nan,nan,'-','Color','k','LineWidth',lwB);
+hS3(1) = semilogy(nan,nan,':', 'Color','k','LineWidth',lw3);
+hS3(2) = semilogy(nan,nan,'-','Color','k','LineWidth',lw3);
 set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
+% zoom window: high-SNR tail (x) x estimated-CSI floor (y = 1e-3..1e-2)
+zx1 = max(SNR_dB(end)-5, SNR_dB(1));  zx2 = SNR_dB(end);  zy1 = 1e-3;  zy2 = 1e-2;
+rectangle('Position',[zx1 zy1 zx2-zx1 zy2-zy1],'EdgeColor',[0.35 0.35 0.35], ...
+    'LineWidth',1.2,'LineStyle','-');
 
-nexttile; hold on; box on; grid on;
+axR3 = nexttile; hold on; box on; grid on;
 for d = 1:4
     xs = sort(seSamp_est{d});  cv = (1:numel(xs)).'/numel(xs);
-    plot(xs, cv, mk{d}, 'Color', cDet{d}, 'LineWidth', lwB, 'MarkerSize', msB, ...
+    plot(xs, cv, mk{d}, 'Color', cDet{d}, 'LineWidth', lw3, 'MarkerSize', msB, ...
         'MarkerIndices', 1:max(1,round(numel(xs)/12)):numel(xs));   % estimated CSI, SOLID + marker
 end
 xlim(cdfXL); ylim(cdfYL);
 styleAxis(gca,'Per-user effective SE [bps/Hz]','CDF');
+% zoom window: SE 3.0..3.5, CDF 0.1..0.3 (where curves bunch)
+qx1 = 3.0;  qx2 = 3.5;  qy1 = 0.10;  qy2 = 0.30;
+rectangle('Position',[qx1 qy1 qx2-qx1 qy2-qy1],'EdgeColor',[0.35 0.35 0.35], ...
+    'LineWidth',1.2,'LineStyle','-');
 
 lgd = legend([hB3(:); hS3(:)], [nmDet(:); {'Perfect CSI';'Estimated CSI'}], ...
     'NumColumns', 3, 'FontSize', 9, 'Box', 'on');
 lgd.Layout.Tile = 'south';  lgd.ItemTokenSize = [tokW 18];
+
+% ---- inset on LEFT (BER) panel: zoom the high-SNR / estimated-floor region ----
+drawnow;  pL = axL3.Position;
+axIL = axes('Position',[pL(1)+0.115*pL(3), pL(2)+0.135*pL(4), 0.42*pL(3), 0.34*pL(4)]);
+hold(axIL,'on'); box(axIL,'on'); grid(axIL,'on'); set(axIL,'YScale','log');
+for d = 1:4
+    semilogy(axIL, SNR_dB, max(aBERrt_pf(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
+        'LineWidth', lwI, 'MarkerSize', msI);
+end
+for d = 1:4
+    semilogy(axIL, SNR_dB, max(aBERrt_est(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
+        'LineWidth', lwI, 'MarkerSize', msI);
+end
+set(axIL,'XLim',[zx1 zx2],'YLim',[zy1 zy2],'FontWeight','bold','FontSize',8);
+title(axIL,sprintf('zoom: %g-%g dB',zx1,zx2),'FontSize',8,'FontWeight','bold');
+
+% ---- inset on RIGHT (CDF) panel: zoom SE 3.0-3.5, CDF 0.1-0.3 ----
+pR = axR3.Position;
+axIR = axes('Position',[pR(1)+0.085*pR(3), pR(2)+0.560*pR(4), 0.42*pR(3), 0.36*pR(4)]);
+hold(axIR,'on'); box(axIR,'on'); grid(axIR,'on');
+for d = 1:4
+    xs = sort(seSamp_est{d});  cv = (1:numel(xs)).'/numel(xs);
+    plot(axIR, xs, cv, mk{d}, 'Color', cDet{d}, 'LineWidth', lwI, 'MarkerSize', msI, ...
+        'MarkerIndices', 1:max(1,round(numel(xs)/20)):numel(xs));
+end
+set(axIR,'XLim',[qx1 qx2],'YLim',[qy1 qy2],'FontWeight','bold','FontSize',8);
+title(axIR,'zoom: 3.0-3.5','FontSize',8,'FontWeight','bold');
 
 %% ====================================================================
 %  FIGURE 4: same as Figure 2 (CSI-independent cost)
@@ -133,37 +170,53 @@ lgd.Layout.Tile = 'south';  lgd.ItemTokenSize = [tokW 18];
 figFronthaulComplexity('VTC-Fig4', xmax, xtSNR, tokW, msB);
 
 %% ====================================================================
-%  FIGURE 5 (single figure): 12 BER curves, all estimated CSI
-%    NF estimated (dotted+marker) + FF estimated (dashed) + NF IDD-3 (dash-dot)
-%    colour = detector.  Line style separates the three families.
+%  FIGURE 5 (two subfigures):
+%    LEFT  = BER vs SNR: NF estimated (solid+marker) + FF estimated (dotted+marker)
+%                        + NF IDD-3 (large dotted).  colour = detector.
+%    RIGHT = Coded BER vs IDD iteration (0..3) at fixed SNR = 15 dB,
+%            near-field + estimated CSI, one curve per detector.
 %% ====================================================================
-lwB = 2.5;
-figure('Name','VTC-Fig5','Position',[80 120 760 620]);
-hold on; box on; grid on;
+lw5 = 3.4;                  % bolder curves for Fig 5
+snrTarget = 15;             % right subfigure: fixed SNR operating point
+figure('Name','VTC-Fig5','Position',[60 120 1250 600]);
+tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
+
+nexttile; hold on; box on; grid on;                              % LEFT: BER vs SNR
 hD = gobjects(1,4);
 for d = 1:4
     hD(d) = semilogy(SNR_dB, max(aBERrt_est(d,:),flrI), mk{d}, 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);                    % NF estimated: solid + marker
+        'LineWidth', lw5, 'MarkerSize', msB);                    % NF estimated: solid + marker
 end
 for d = 1:4
     semilogy(SNR_dB, max(aBERrt_ff_est(d,:),flrI), [':' mkpt{d}], 'Color', cDet{d}, ...
-        'LineWidth', lwB, 'MarkerSize', msB);                    % FF estimated: dotted + marker
+        'LineWidth', lw5, 'MarkerSize', msB);                    % FF estimated: dotted + marker
 end
 for d = 1:4
     semilogy(SNRf, max(squeeze(BERidd_nf(d,3,:)).',flrI), ':', 'Color', cDet{d}, ...
-        'LineWidth', lwB + 1.0);                                 % NF IDD-3: large dotted, no marker, detector colour
+        'LineWidth', lw5 + 1.0);                                 % NF IDD-3: large dotted, no marker
 end
 hK = gobjects(1,3);
-hK(1) = semilogy(nan,nan,'-o','Color','k','LineWidth',lwB,'MarkerSize',msB);   % NF est key
-hK(2) = semilogy(nan,nan,':o','Color','k','LineWidth',lwB,'MarkerSize',msB);   % FF est key
-hK(3) = semilogy(nan,nan,':', 'Color','k','LineWidth',lwB + 1.0);              % IDD-3 key (large dotted)
+hK(1) = semilogy(nan,nan,'-o','Color','k','LineWidth',lw5,'MarkerSize',msB);   % NF est key
+hK(2) = semilogy(nan,nan,':o','Color','k','LineWidth',lw5,'MarkerSize',msB);   % FF est key
+hK(3) = semilogy(nan,nan,':', 'Color','k','LineWidth',lw5 + 1.0);              % IDD-3 key (large dotted)
 set(gca,'YScale','log','XTick',xtSNR,'XLim',[0 xmax]); ylim([1e-5 1]);
 styleAxis(gca,'SNR [dB]','BER');
 
+nexttile; hold on; box on; grid on;                              % RIGHT: coded BER vs IDD iteration
+[~, it15] = min(abs(SNRf - snrTarget));
+iterAx = 0:3;
+for d = 1:4
+    yIter = [baseS_nf(d,it15), squeeze(BERidd_nf(d,1:3,it15)).'];  % iter 0,1,2,3
+    semilogy(iterAx, max(yIter,flrI), mk{d}, 'Color', cDet{d}, ...
+        'LineWidth', lw5, 'MarkerSize', msB);
+end
+set(gca,'YScale','log','XTick',iterAx,'XLim',[-0.15 3.15]); ylim([1e-5 1e-2]);
+styleAxis(gca,'IDD iterations','Coded BER');
+
 lgd = legend([hD(:); hK(:)], ...
     [nmDet(:); {'Near-field, estimated';'Far-field, estimated';'Near-field, IDD iter 3'}], ...
-    'NumColumns', 3, 'FontSize', 9, 'Box', 'on', 'Location', 'southoutside');
-lgd.ItemTokenSize = [tokW 18];
+    'NumColumns', 3, 'FontSize', 9, 'Box', 'on');
+lgd.Layout.Tile = 'south';  lgd.ItemTokenSize = [tokW 18];
 
 % ==========================================================================
 %  LOCAL FUNCTIONS
@@ -174,7 +227,7 @@ function styleAxis(ax, xtxt, ytxt)
     ylabel(ax, ytxt, 'FontSize', 14, 'FontWeight', 'bold');
 end
 
-function BERidd = genIDD(aBER, SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWin_dB, flrI)
+function [BERidd, baseS] = genIDD(aBER, SNR_dB, SNRf, cumGlog, penlog, smid, sw, smoothWin_dB, flrI)
     nF = numel(SNRf);
     baseS = zeros(4,nF);
     smW = max(3, round(smoothWin_dB/(SNRf(2)-SNRf(1))));
