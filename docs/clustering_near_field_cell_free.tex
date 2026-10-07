@@ -6,14 +6,15 @@
 \usepackage[dvipsnames]{xcolor}
 \usepackage[most]{tcolorbox}
 \usepackage{microtype}
+\usepackage{cite}
 \usepackage[colorlinks=true,linkcolor=NavyBlue,citecolor=ForestGreen,urlcolor=NavyBlue]{hyperref}
 \setlist{itemsep=2pt,topsep=3pt}
 \newtheorem{proposition}{Proposition}
 \newtcolorbox{keybox}[1]{colback=NavyBlue!5,colframe=NavyBlue!70,fonttitle=\bfseries,title={#1},left=4pt,right=4pt,top=3pt,bottom=3pt}
 \newtcolorbox{warnbox}[1]{colback=BrickRed!5,colframe=BrickRed!70,fonttitle=\bfseries,title={#1},left=4pt,right=4pt,top=3pt,bottom=3pt}
-\newtcolorbox{ideabox}[1]{colback=ForestGreen!5,colframe=ForestGreen!70,fonttitle=\bfseries,title={#1},left=4pt,right=4pt,top=3pt,bottom=3pt}
 \title{\textbf{Improving User-Centric Clustering for Near-Field Cell-Free XL-MIMO}\\[2pt]
-\large Why current rules look the same, which metrics prove a clustering is better, and four proposed strategies}
+\large Why current rules look the same, which metrics prove a clustering is better, and four proposed strategies\\[2pt]
+\normalsize (Version 2: claims checked against the full texts of the cited papers)}
 \author{Prepared for Nayyab Haider (PUC-Rio)}
 \date{October 2026}
 
@@ -22,16 +23,20 @@
 
 \begin{keybox}{Summary in five lines}
 \begin{enumerate}[leftmargin=*]
-  \item In your code, the channel-norm (CN) and information-rate (IR) clusters are almost identical by construction, so their BER and sum-rate curves overlap. This is a property of the rules, not of the simulation (Section~\ref{sec:audit}).
-  \item Clustering rarely changes BER or sum-rate much in your setting, because the cross-AP detector re-reads the non-serving APs whenever the cluster estimate is unreliable. You are right to look for other metrics.
-  \item The metrics that \emph{do} separate clustering rules are fronthaul load, gate firing rate, captured information, energy efficiency, tail SE and fairness, and above all the \emph{fronthaul needed to reach a target BER} (Section~\ref{sec:metrics}).
-  \item The strongest new strategy for you is a \textbf{detector-aware information-surplus clustering} with a closed-form fronthaul-optimal cluster size. It comes with a provable bound that links the cluster to the information surplus $\Delta_k$ of your own papers (Section~\ref{sec:proposals}).
-  \item Show the gain in an \textbf{interference-limited} regime (more users, collinear pairs, sparse APs, estimated CSI), at \textbf{equal fronthaul} or \textbf{equal BER} (Section~\ref{sec:eval}).
+  \item In your code, the channel-norm (CN) and information-rate (IR) clusters are almost identical by construction, so their BER and sum-rate curves overlap (Section~\ref{sec:audit}).
+  \item BER and sum-rate rarely separate clustering rules in your system, because the cross-AP detector re-reads the non-serving APs whenever the cluster estimate is unreliable \cite{haider2026icassp,haider2026vtc}. A worse cluster costs \emph{fronthaul}, not BER.
+  \item Metrics that \emph{do} separate rules: fronthaul, gate firing rate, captured information, energy efficiency, tail SE and fairness, and above all the fronthaul needed to reach a target BER (Section~\ref{sec:metrics}).
+  \item Proposed: a \textbf{detector-aware information-surplus clustering} with a closed-form fronthaul-optimal cluster size, with a bound that links the cluster to $\Delta_k$ of your papers (Section~\ref{sec:proposals}).
+  \item Show the gain in an \textbf{interference-limited} regime, at \textbf{equal fronthaul} or \textbf{equal BER} (Section~\ref{sec:eval}).
 \end{enumerate}
 \end{keybox}
 
-\begin{warnbox}{Scope of the literature search}
-The search used a web search engine. Direct access to arXiv, Google Scholar, IEEE Xplore and the GitHub API was blocked by the environment's network policy, so full texts and code repositories could not be opened. Each reference was checked for title and venue; unverified author lists are marked. Confirm details before citing.
+\begin{warnbox}{Citation conventions, verification status and what changed in this version}
+\begin{itemize}[leftmargin=*]
+  \item ``[x, eq.~(y)]'' or ``[x, Sec.~z]'' points to the exact place in the arXiv version listed in the bibliography. \textbf{``Derived here''} or \textbf{``proposed here''} marks results that are not taken from a paper.
+  \item The full texts of \cite{mashdour2024study,tesolin2026gbse,tesolin2026gbsa,lai2024hybridua} were read and checked. All other references were checked at the level of title, authors and abstract (Table~\ref{tab:verify}).
+  \item \textbf{Correction in this version:} version~1 said that the information-rate rule of Mashdour and de~Lamare includes inter-user interference. It does not: the rate in \cite[eq.~(11)]{mashdour2024study} contains only the estimation error and noise. Section~\ref{sec:audit} is corrected accordingly.
+\end{itemize}
 \end{warnbox}
 
 \tableofcontents
@@ -42,42 +47,58 @@ The search used a web search engine. Direct access to arXiv, Google Scholar, IEE
 \label{sec:audit}
 
 \subsection{Channel-norm (CN) cluster}
-For each user $k$ the code forms a metric $m_{l,k}$ and a threshold per propagation regime:
+For each user $k$ the code uses a metric and a threshold per propagation regime (code inspection, done here):
 \begin{equation}
   m_{l,k}=\begin{cases}\|\mathbf h^{\rm NF}_{l,k}\|^2\approx N\beta_{l,k}, & A_{l,k}=1,\\ \beta_{l,k}, & A_{l,k}=0,\end{cases}\qquad
   D^{\rm CN}_{l,k}=\mathbb 1\Big[m_{l,k}\ge \tfrac{1}{c}\max_{l'\in\mathcal K^{\rm reg}_k} m_{l',k}\Big],
 \end{equation}
-with $c=$\,\texttt{clu\_div}$=2$, and the master AP $\arg\max_l m_{l,k}$ is always added.
+with $c=$\,\texttt{clu\_div}$=2$, plus the master AP $\arg\max_l m_{l,k}$. A threshold on channel gain with a master AP follows the dynamic cooperation clustering (DCC) idea of \cite{bjornson2020scalable}.
 
-\textbf{Issue 1 (inconsistent scale).} A near-field metric is about $N\beta$ while a far-field metric is $\beta$. The master AP is therefore almost always a near-field AP, even if a far-field AP has a larger $\beta$. Use the same scale for both regimes (for example $N\beta_{l,k}$, or the estimated $\|\hat{\mathbf h}_{l,k}\|^2$).
+\textbf{Issue 1 (inconsistent scale).} A near-field metric is about $N\beta$ and a far-field metric is $\beta$, so the master AP is almost always a near-field AP even when a far-field AP has a larger $\beta$. Use the same scale for both regimes.
 
 \subsection{Information-rate (IR / ``BSR'') cluster}
-The code scores each link by
+\textbf{What the paper does.} Mashdour and de~Lamare define, for AP $m$ and user $k$ (downlink model with precoder $\mathbf p_k$, estimate $\hat g_{km}$ and error $\tilde g_{km}$) \cite[eq.~(11)]{mashdour2024study}
+\begin{equation}
+  \mathrm{SR}_{km}=\log_2\!\Big(1+\frac{\rho_f|\hat g_{km}|^2\mathbf p_k^{\mathsf H}\mathbf p_k}{\rho_f|\tilde g_{km}|^2\mathbf p_k^{\mathsf H}\mathbf p_k+\sigma_w^2}\Big),
+  \label{eq:bsr}
+\end{equation}
+a network-wide threshold equal to the \emph{average} rate \cite[eq.~(12)]{mashdour2024study}
+\begin{equation}
+  s_{rc}=\frac1{KM}\sum_{m=1}^M\sum_{k=1}^K\mathrm{SR}_{km},
+\end{equation}
+and the cluster \cite[eq.~(13), Algorithm~1]{mashdour2024study}
+\begin{equation}
+  \mathcal U_k=\{m:\mathrm{SR}_{km}\ge s_{rc}\}\cup\arg\max_m \mathrm{SR}_{km}.
+\end{equation}
+The rate in \eqref{eq:bsr} has \emph{no inter-user interference term}; it depends on the estimated gain, the estimation error and the noise, and therefore includes small-scale fading \cite[Sec.~III-B]{mashdour2024study}.
+
+\textbf{What your code does.} It scores each link by
 \begin{equation}
   \mathrm{SR}_{l,k}=\log_2\!\Big(1+\frac{p\,(\mathrm{tr}\,\mathbf R_{l,k}-\mathrm{tr}\,\mathbf C_{l,k})}{p\,\mathrm{tr}\,\mathbf C_{l,k}+1}\Big),
 \end{equation}
-ranks the APs by this score, and keeps \emph{exactly as many APs as the CN cluster has} ($|\mathcal S^{\rm IR}_k|=|\mathcal S^{\rm CN}_k|$).
+which has the same structure as \eqref{eq:bsr} (signal over estimation error plus noise), but in statistical form. It then \emph{ranks} APs by this score and keeps \emph{exactly as many APs as the CN cluster has}.
 
-\textbf{Issue 2 (no interference).} The score has no term for the other users $j\neq k$, so it increases with $\mathrm{tr}\,\mathbf R_{l,k}$ only. With orthogonal pilots and good estimates, $\mathrm{tr}\,\mathbf C\approx0$, and the ranking becomes the ranking by $\beta_{l,k}$, which is the CN ranking. The rate rule of [6], [7] measures the rate \emph{after} the local combiner and includes the interference the combiner leaves; the code version does not.
+\textbf{Issue 2 (size rule differs from the paper).} The paper's cluster size comes from the average-rate threshold \cite[eqs.~(12)--(13)]{mashdour2024study}; the code copies $|\mathcal S^{\rm CN}_k|$ instead. With orthogonal pilots and good estimates, $\mathrm{tr}\,\mathbf C\approx0$, so the score is monotone in $\mathrm{tr}\,\mathbf R_{l,k}\approx N\beta_{l,k}$ and ranks APs exactly like CN. With the same size and the same ranking, the clusters coincide; the code's console line ``AP-selection disagreement: CN vs Rate'' reports this.
 
-\textbf{Issue 3 (size tied to CN).} Because the size is copied from the CN cluster and the ranking is (almost) the same, the two clusters coincide. The code's own console line ``AP-selection disagreement: CN vs Rate'' reports this; values near 0 mean every difference between the curves is Monte Carlo noise.
+\textbf{Issue 3 (shared limitation).} Neither \eqref{eq:bsr} nor the code score accounts for interference from other users, or for what the detector does with the cluster. This is the opening for the proposals in Section~\ref{sec:proposals}.
 
 \begin{keybox}{Consequence}
-Any new clustering rule you propose must (i) include interference or detector behaviour in its score and (ii) choose its own cluster size. Otherwise it will again coincide with CN.
+To compare fairly with \cite{mashdour2024study}, implement its average-rate threshold (eqs.~(12)--(13)) instead of the CN size. Any new rule must choose its own size and use information that CN does not use (interference or detector behaviour); otherwise it will again coincide with CN.
 \end{keybox}
 
 \subsection{Why BER and sum-rate hardly move}
 \begin{itemize}
-  \item \textbf{The detector compensates.} When the cluster estimate is unreliable, cross-AP list SIC fuses all APs. A weaker cluster makes the gate fire more often, which costs fronthaul, but the BER barely changes. The cost of a bad cluster shows up as \emph{fronthaul}, not as BER.
-  \item \textbf{Noise-limited regime.} With $K=8$ users, $N=64$ antennas and $L=8$ APs, the local MMSE combiners already suppress most interference; the earlier GBSE test gave clusters of about 1.3 APs and no visible gain.
-  \item \textbf{The sum-rate in Figs.~1/4} is the combiner SINR, which is identical for SIC, list-SIC and cross-AP by construction (they share the combiner).
+  \item \textbf{The detector compensates.} When the reliability test fires, cross-AP list SIC fuses all APs \cite[Sec.~III-B]{haider2026vtc}, at an extra per-user fronthaul cost $\bar B_k=|\mathcal S_k|+\rho(L-|\mathcal S_k|)$ \cite[Sec.~III-B]{haider2026vtc}. A weaker cluster makes the gate fire more often: the cost appears as fronthaul, not as BER.
+  \item \textbf{Noise-limited regime.} With $K=8$, $N=64$ and $L=8$, the local MMSE combiners suppress most interference; an earlier GBSE test in this project gave clusters of about 1.3 APs and no visible gain.
+  \item \textbf{Shared combiner.} SIC, list-SIC and cross-AP share the same combiner, so the combiner-SINR sum rate cannot separate them.
 \end{itemize}
+The GBSA study reaches a related conclusion from the energy side: replacing its energy-efficiency objective by sum-rate or channel-norm objectives gives clearly lower energy efficiency at the same cluster-size limit \cite[Sec.~VI, Fig.~2]{tesolin2026gbsa}. The choice of \emph{metric} decides what a clustering rule appears to achieve.
 
 %=====================================================================
 \section{Literature review}
 \label{sec:lit}
 
-\begin{longtable}{@{}p{0.27\linewidth}p{0.38\linewidth}p{0.28\linewidth}@{}}
+\begin{longtable}{@{}p{0.27\linewidth}p{0.40\linewidth}p{0.26\linewidth}@{}}
 \caption{Clustering and AP-selection work relevant to you.}\\
 \toprule
 \textbf{Work} & \textbf{Idea} & \textbf{Relevance / gap}\\
@@ -87,70 +108,64 @@ Any new clustering rule you propose must (i) include interference or detector be
 \textbf{Work} & \textbf{Idea} & \textbf{Relevance / gap}\\
 \midrule
 \endhead
-Bj\"ornson, Sanguinetti [1]; Demir \emph{et al.} [2] & Dynamic cooperation clustering (DCC), master AP and pilot assignment; scalable by construction. & The standard CN baseline; far-field.\\
-Buzzi, D'Andrea [5] & User-centric cell-free: each user served by its strongest APs. & Baseline idea.\\
-Ngo \emph{et al.} [4] & AP selection by received power to improve total energy efficiency, with a power model including fronthaul. & Source of the EE power model.\\
-Dao, Kim [10] & Effective-channel-gain metrics from large-scale fading; sequential user--AP association. & Large-scale only; no detector awareness.\\
-Ammar, Adve, Valaee, Yu [15] & Survey of user-centric cell-free: clustering, fronthaul, scalability. & Background and metrics.\\
-Mashdour, Salehi, de Lamare, Schmeink, Lima [6]; Mashdour, de Lamare [7] & Clustering based on information rates instead of large-scale fading; fairness scheduling. & Your IR baseline; your code's version omits interference (Issue 2).\\
-Tesolin, de Lamare [8] & Graph-based search-and-evaluate (GBSE): serving states as a Hamming graph; discrete search over clusters plus continuous inner evaluation; RAN energy efficiency. & An optimizer you can reuse with a new objective.\\
-Tesolin, de Lamare [9] & Graph-based steepest ascent (GBSA) with fractional-programming power allocation; near-optimal RANEE with linear per-iteration cost; compared on processing time, optimality gap and cluster size. & Same; gives the metrics used by your group.\\
-G\"ottsch \emph{et al.} [13] & Fixed user-centric clusters under fairness scheduling. & Fairness metrics.\\
-HybridUA [14] (authors not verified) & Hybrid network/user-centric association by a z-score of summed large-scale fading; large fronthaul-signalling savings; Jain's index and 5\% outage reported. & Example of fronthaul-first evaluation.\\
-G\"ottsch \emph{et al.} [24] & Fronthaul quantization and routing for flexible user load (MILP). & Fronthaul modelling.\\
-Ranasinghe \emph{et al.} [11]; Pereira-Ruis\'anchez \emph{et al.} [12] & Graph neural networks for AP selection and cooperation-cluster formation. & Learning-based alternative (future work).\\
-Ssettumba \emph{et al.} [16], [17] & Iterative interference cancellation and IDD for clustered cell-free; AP selection with LLR refinement. & Closest to your detector side.\\
-Wang \emph{et al.} [19]; Mylonopoulos \emph{et al.} [20] & Near-field cell-free combining and beamfocusing. & No near-field-specific clustering.\\
+Bj\"ornson, Sanguinetti \cite{bjornson2020scalable}; Demir \emph{et al.} \cite{demir2021foundations} & Dynamic cooperation clustering, master AP, pilot assignment; scalable by construction. & The standard CN baseline.\\
+Buzzi, D'Andrea \cite{buzzi2017uc} & User-centric cell-free: each user served by its strongest APs. & Baseline idea.\\
+Ngo \emph{et al.} \cite{ngo2018ee} & AP selection to improve total energy efficiency with a power model that includes fronthaul. & EE power model.\\
+Dao, Kim \cite{dao2020effective} & Effective-channel-gain metrics from large-scale fading; sequential association. & Large-scale only.\\
+Ammar, Adve, Valaee, Yu \cite{ammar2022survey} & Survey of user-centric cell-free networks. & Background.\\
+Mashdour, Salehi, de~Lamare, Schmeink, Lima \cite{mashdour2024wcl}; Mashdour, de~Lamare \cite{mashdour2024study} & Boosted sum-rate (BSR) clustering: per-link rate with estimation error and noise \cite[eq.~(11)]{mashdour2024study}, average-rate threshold \cite[eqs.~(12)--(13)]{mashdour2024study}; fairness scheduling. & Your IR baseline; no interference term; code uses a different size rule (Issue~2).\\
+Tesolin, de~Lamare \cite{tesolin2026gbse} & Serving states as a graph with Hamming-distance adjacency; the number of candidate sets per user is $2^{D_k}-1$ and of serving states $\prod_k(2^{D_k}-1)$ \cite[eqs.~(1)--(2)]{tesolin2026gbse}; graph-based search-and-evaluate (GBSE) with RAN energy efficiency \cite[Sec.~IV]{tesolin2026gbse}; evaluated by processing time and optimality gap vs.\ exhaustive search \cite[Sec.~IV-B, Fig.~1]{tesolin2026gbse}. & An optimizer you can reuse with a new objective.\\
+Tesolin, de~Lamare \cite{tesolin2026gbsa} & RAN energy efficiency (RANEE) objective \cite[eq.~(5)]{tesolin2026gbsa}; graph-based steepest ascent (GBSA) with fractional-programming power allocation and linear per-iteration complexity \cite[Abstract, Secs.~IV--V]{tesolin2026gbsa}; near-optimal RANEE vs.\ exhaustive search and a joint-optimisation baseline \cite[Sec.~VI, Fig.~3]{tesolin2026gbsa}. & Gives the metrics used by your group.\\
+Lai, Xiang, Lukito, Phan, Cheng, Liu, Mao \cite{lai2024hybridua} & HybridUA: online association that labels users network- or user-centric with a z-score of summed large-scale fading \cite[Sec.~III]{lai2024hybridua}; saves 71--94\% of fronthaul signalling and up to 83\% of CPU processing power with at most 8.6\% SE loss; reports Jain's index and 5\% outage \cite[Sec.~IV]{lai2024hybridua}. & A fronthaul-first evaluation to imitate.\\
+G\"ottsch \emph{et al.} \cite{gottsch2023fairness,gottsch2025fronthaul} & Fixed clusters under fairness scheduling; fronthaul quantization and routing. & Fairness and fronthaul modelling.\\
+Ranasinghe \emph{et al.} \cite{ranasinghe2021gnn}; Pereira-Ruis\'anchez \emph{et al.} \cite{pereira2025gnn} & Graph neural networks for AP selection and cluster formation. & Learning-based alternative.\\
+Ssettumba \emph{et al.} \cite{ssettumba2024iic,ssettumba2024idd} & Interference cancellation and IDD for clustered cell-free; AP selection with LLR refinement. & Closest to your detector side.\\
+Wang \emph{et al.} \cite{wang2026combining}; Mylonopoulos \emph{et al.} \cite{mylonopoulos2025los} & Near-field cell-free combining and beamfocusing. & No near-field-specific clustering.\\
 \bottomrule
 \end{longtable}
 
-\textbf{Gap.} Within this search, no clustering rule was found that (a) is designed around a \emph{list/cross-AP detector} and its reliability gate, or (b) uses \emph{near-field range-domain separability} (estimated angle and range) to pick APs. Both are natural for your line of work.
+\textbf{Gap.} Within this search, no clustering rule was found that (a) is designed around a list/cross-AP detector and its reliability gate, or (b) uses near-field range-domain separability (estimated angle and range) to pick APs.
 
 %=====================================================================
 \section{Metrics that prove a clustering is better}
 \label{sec:metrics}
 
-Below, $\mathcal S_k$ is the cluster of user $k$, $\gamma_{l,k}$ the post-combining SINR of AP $l$ for user $k$ (eq.~(23) in your VTC paper), $\Gamma_k=\sum_{l=1}^L\gamma_{l,k}$ and $\Gamma_{\mathcal S_k}=\sum_{l\in\mathcal S_k}\gamma_{l,k}$.
+$\mathcal S_k$ is the cluster of user $k$, $\gamma_{l,k}$ the per-AP post-combining SINR (eq.~(23) of \cite{haider2026vtc}), $\Gamma_k=\sum_{l=1}^L\gamma_{l,k}$ and $\Gamma_{\mathcal S_k}=\sum_{l\in\mathcal S_k}\gamma_{l,k}$.
 
 \begin{enumerate}[label=\textbf{M\arabic*.}]
-  \item \textbf{Fronthaul per user} (the most important one for you):
+  \item \textbf{Fronthaul per user} (from \cite[Sec.~III-B]{haider2026vtc}):
   \begin{equation}
     \bar B=\frac1K\sum_{k=1}^K\big(|\mathcal S_k|+\rho_k\,(L-|\mathcal S_k|)\big),
   \end{equation}
-  where $\rho_k$ is the measured gate firing rate (variable \texttt{etaXap\_acc} in your code). A good cluster makes the gate fire less, so it lowers $\bar B$ even when it has the same size.
-  \item \textbf{Iso-performance cost}: the fronthaul $\bar B$ (or the energy) needed to reach a target BER, for example $10^{-3}$. This is the cleanest single number: ``at the same BER our clustering needs X\% fewer scalars''.
-  \item \textbf{Cluster size} $|\mathcal S_k|$: mean and histogram, separately for near-field-dominated and far-field-dominated users.
-  \item \textbf{Captured-information ratio}
-  \begin{equation}
-    \kappa_k=\frac{\Gamma_{\mathcal S_k}}{\Gamma_k}\in(0,1],
-  \end{equation}
-  and the information surplus $\Delta_k$ (eq.~(26) of your VTC paper). Plot their CDFs.
+  with $\rho_k$ the measured gate firing rate (\texttt{etaXap\_acc} in your code). Fronthaul is the primary metric in \cite{lai2024hybridua}.
+  \item \textbf{Iso-performance cost} (proposed here): the fronthaul $\bar B$ or energy needed to reach a target BER, e.g.\ $10^{-3}$.
+  \item \textbf{Cluster size} $|\mathcal S_k|$: mean and histogram, split into near- and far-field-dominated users. Average cluster size is also reported in \cite[Fig.~3]{tesolin2026gbsa}.
+  \item \textbf{Captured-information ratio} (proposed here) $\kappa_k=\Gamma_{\mathcal S_k}/\Gamma_k$, and the information surplus $\Delta_k$ (eq.~(26) of \cite{haider2026vtc}). Plot their CDFs.
   \item \textbf{Gate firing rate} $\rho$ vs.\ SNR (already measured by your code).
-  \item \textbf{Tail performance}: 5th-percentile per-user SE (``95\%-likely SE'') and the SE CDF.
-  \item \textbf{Fairness}: Jain's index [22]
+  \item \textbf{Tail performance}: 5th-percentile per-user SE (5\% outage), as in \cite{lai2024hybridua}.
+  \item \textbf{Fairness}: Jain's index \cite{jain1984fairness}, also used in \cite{lai2024hybridua},
   \begin{equation}
     J=\frac{\big(\sum_k \mathrm{SE}_k\big)^2}{K\sum_k \mathrm{SE}_k^2}\in\Big[\tfrac1K,1\Big].
   \end{equation}
-  \item \textbf{Energy efficiency}, as in [4], [9], with a fronthaul term:
+  \item \textbf{Energy efficiency}. GBSA defines RANEE as the sum rate over $L P_{\rm circuit}+\sum_l p_l$, where $P_{\rm circuit}$ covers baseband, fronthaul, synchronisation and cooling \cite[eq.~(5)]{tesolin2026gbsa}. To make the fronthaul effect of your detector visible, split out a per-scalar fronthaul term (proposed here):
   \begin{equation}
-    \mathrm{EE}=\frac{B_w\sum_k \mathrm{SE}_k}{L\,P_{\rm circ}+\sum_l p_l+P_{\rm FH}\,K\bar B},
+    \mathrm{EE}=\frac{B_w\sum_k \mathrm{SE}_k}{L\,P_{\rm circ}+\sum_l p_l+P_{\rm FH}\,K\bar B}.
   \end{equation}
-  where $P_{\rm FH}$ is the power per forwarded scalar stream.
-  \item \textbf{Complexity}: AP-side combiner cost (per AP, $\mathcal O(N^3)$ times the number of served users if per-user combiners are recomputed), CPU-side LSFD cost $\sum_k\mathcal O(|\mathcal S_k|^3)$, and the run time of the clustering algorithm itself.
-  \item \textbf{Load balance}: $\max_l|\mathcal D_l| / \tfrac1L\sum_l|\mathcal D_l|$, where $\mathcal D_l$ is the set of users served by AP $l$.
-  \item \textbf{Robustness to CSI error}: the ratio of a metric under estimated vs.\ perfect CSI (your ``retained rate fraction'' figure), now per clustering rule.
+  \item \textbf{Complexity}: AP-side combiner cost, CPU-side LSFD cost $\sum_k\mathcal O(|\mathcal S_k|^3)$, and the run time of the clustering algorithm, as in \cite[Fig.~1]{tesolin2026gbse} and \cite[Fig.~3]{tesolin2026gbsa}.
+  \item \textbf{Load balance}: $\max_l|\mathcal D_l|/\big(\tfrac1L\sum_l|\mathcal D_l|\big)$; users per CPU is reported in \cite[Sec.~IV]{lai2024hybridua}.
+  \item \textbf{Robustness to CSI error}: ratio of a metric under estimated vs.\ perfect CSI, per clustering rule.
 \end{enumerate}
 
 \begin{keybox}{Which ones to put in the paper}
-M1, M2, M4 (CDF of $\kappa_k$ or $\Delta_k$), M6 and M8 are enough for a strong section. M2 should be the headline figure: BER vs.\ fronthaul at fixed SNR, one curve per clustering rule.
+M1, M2, M4 (CDF of $\kappa_k$ or $\Delta_k$), M6 and M8. Make M2 the headline figure: BER vs.\ fronthaul at fixed SNR, one curve per clustering rule.
 \end{keybox}
 
 %=====================================================================
 \section{Proposed clustering strategies}
 \label{sec:proposals}
 
-\subsection{P1: Detector-aware information-surplus clustering (main proposal)}
-\textbf{Idea.} Choose, for each user, the \emph{smallest} set of APs that captures a fraction $1-\varepsilon$ of the user's total post-combining SINR. Use the estimated channels of \emph{all} AP--UE pairs (your VTC estimator already provides them) and include interference:
+\subsection{P1: Detector-aware information-surplus clustering (main proposal, proposed here)}
+Choose, for each user, the \emph{smallest} set of APs that captures a fraction $1-\varepsilon$ of the user's total post-combining SINR, computed from the estimates of all AP--UE pairs (available after the cross-AP estimation of \cite{haider2026vtc}) and including interference:
 \begin{equation}
   \hat\gamma_{l,k}=\frac{p\,|\hat{\mathbf v}_{l,k}^{\mathsf H}\hat{\mathbf h}_{l,k}|^2}
   {p\sum_{j\ne k}|\hat{\mathbf v}_{l,k}^{\mathsf H}\hat{\mathbf h}_{l,j}|^2+\hat{\mathbf v}_{l,k}^{\mathsf H}\big(p\sum_j\mathbf C_{l,j}+\mathbf I\big)\hat{\mathbf v}_{l,k}},
@@ -158,10 +173,10 @@ M1, M2, M4 (CDF of $\kappa_k$ or $\Delta_k$), M6 and M8 are enough for a strong 
   \mathcal S_k=\arg\min_{\mathcal S}\Big\{|\mathcal S|:\ \sum_{l\in\mathcal S}\hat\gamma_{l,k}\ge(1-\varepsilon)\sum_{l=1}^L\hat\gamma_{l,k}\Big\}.
   \label{eq:p1}
 \end{equation}
-The minimum is found by sorting $\hat\gamma_{l,k}$ in descending order and adding APs until the target is met ($\mathcal O(L\log L)$ per user).
+The SINR form follows eqs.~(23)--(24) of \cite{haider2026vtc} with the estimation-error covariance added; the minimum is found by sorting $\hat\gamma_{l,k}$ ($\mathcal O(L\log L)$ per user). Unlike \eqref{eq:bsr}, the score contains the interference left by the combiner.
 
-\begin{proposition}[Cluster target bounds the information surplus]
-If $\kappa_k=\Gamma_{\mathcal S_k}/\Gamma_k\ge 1-\varepsilon$, then the information surplus of your papers satisfies
+\begin{proposition}[Cluster target bounds the information surplus; derived here]
+If $\kappa_k=\Gamma_{\mathcal S_k}/\Gamma_k\ge 1-\varepsilon$, then the surplus of eq.~(26) of \cite{haider2026vtc} satisfies
 \begin{equation}
   \Delta_k=\frac{\Gamma_k-\Gamma_{\mathcal S_k}}{(1+\Gamma_{\mathcal S_k})(1+\Gamma_k)}\;\le\;\frac{\varepsilon}{1+(1-\varepsilon)\Gamma_k}.
 \end{equation}
@@ -169,57 +184,53 @@ If $\kappa_k=\Gamma_{\mathcal S_k}/\Gamma_k\ge 1-\varepsilon$, then the informat
 \begin{proof}
 $\Gamma_k-\Gamma_{\mathcal S_k}\le\varepsilon\Gamma_k$ and $1+\Gamma_{\mathcal S_k}\ge1+(1-\varepsilon)\Gamma_k$, so $\Delta_k\le \varepsilon\Gamma_k/\big((1+(1-\varepsilon)\Gamma_k)(1+\Gamma_k)\big)$, and $\Gamma_k/(1+\Gamma_k)\le1$.
 \end{proof}
-\textbf{Why this is a good contribution.} One parameter $\varepsilon$ directly controls how much the cluster-only estimate can lose against the all-AP estimate. It links clustering to the detector analysis of your ICASSP and VTC papers. The cluster size adapts per user: a near-field user whose energy sits in one or two APs gets a small cluster, while an edge user gets a larger one. This is where fronthaul savings come from.
+One parameter $\varepsilon$ controls how much the cluster-only estimate can lose against the all-AP estimate, which links clustering to the detector analysis of \cite{haider2026icassp,haider2026vtc}. The cluster size adapts per user, which is where fronthaul savings come from.
 
-\subsection{P2: Fronthaul-optimal cluster size for the gated cross-AP detector}
-\textbf{Idea.} Your detector forwards the $|\mathcal S_k|$ cluster scalars always, and the remaining $L-|\mathcal S_k|$ only when the gate fires. A larger cluster costs more base fronthaul but makes the gate fire less. There is an optimum.
+\subsection{P2: Fronthaul-optimal cluster size for the gated cross-AP detector (proposed here)}
+The cluster scalars are always forwarded, and the other $L-|\mathcal S_k|$ only when the gate fires \cite[Sec.~III-B]{haider2026vtc}. A larger cluster costs more base fronthaul but makes the gate fire less.
 
-\textbf{Gate model.} The code declares a decision unreliable when the soft estimate is farther than $d_{\rm abs}=d_{\rm th}\,d_{\min}/2$ from every constellation point. If the fused estimate error is $\mathcal{CN}(0,\varepsilon^2_{\mathcal S})$ with $\varepsilon^2_{\mathcal S}=1/(1+\Gamma_{\mathcal S})$ (eq.~(25) of VTC), the probability of staying inside the disk around the true point is $1-e^{-d_{\rm abs}^2/\varepsilon_{\mathcal S}^2}$, so
+\textbf{Gate model (derived here).} The code declares a decision unreliable when the soft estimate is farther than $d_{\rm abs}=d_{\rm th}\,d_{\min}/2$ from every constellation point (the shadow-region test, eq.~(20) of \cite{haider2026vtc}). If the fused error is $\mathcal{CN}(0,\varepsilon^2_{\mathcal S})$ with $\varepsilon^2_{\mathcal S}=1/(1+\Gamma_{\mathcal S})$ (eq.~(25) of \cite{haider2026vtc}), the probability of staying inside the disk around the true point is $1-e^{-d_{\rm abs}^2/\varepsilon_{\mathcal S}^2}$, so
 \begin{equation}
   \rho_k(\mathcal S)\approx\exp\!\big(-d_{\rm abs}^2\,(1+\Gamma_{\mathcal S})\big).
 \end{equation}
-\textbf{Optimal size.} With the APs sorted by $\hat\gamma_{l,k}$ and $\mathcal S^{(m)}$ the $m$ best,
+\textbf{Optimal size.} With APs sorted by $\hat\gamma_{l,k}$ and $\mathcal S^{(m)}$ the $m$ best,
 \begin{equation}
   m_k^\star=\arg\min_{m\in\{1,\dots,L\}}\Big[m+\exp\!\big(-d_{\rm abs}^2(1+\Gamma_{\mathcal S^{(m)}})\big)(L-m)\Big],
   \label{eq:p2}
 \end{equation}
-a one-dimensional search of $L$ values per user. P1 and P2 can be combined: P2 picks the size, P1's ranking picks the APs.
+a search over $L$ values per user. P2 picks the size, P1's ranking picks the APs. The model can be validated against the measured \texttt{etaXap\_acc}.
 
-\textbf{Why this is a good contribution.} It is closed-form, cheap, and specific to the gated cross-AP architecture you proposed. It also predicts your fronthaul figure, so you can validate it: compare the model $\rho_k(\mathcal S)$ with the measured \texttt{etaXap\_acc}.
-
-\subsection{P3: Near-field separability-aware AP ranking}
-\textbf{Idea.} In the near field, an AP is valuable for user $k$ if it can \emph{separate} $k$ from its strongest interferers in angle \emph{or range}. The polar-domain estimator gives estimated angles and ranges $(\hat\theta_{l,j},\hat r_{l,j})$ for every pair, so the CPU can predict the near-field correlation
+\subsection{P3: Near-field separability-aware ranking (proposed here)}
+In the near field an AP is valuable for user $k$ if it can separate $k$ from its strongest interferers in angle \emph{or range}. Polar-domain estimation gives estimated angles and ranges for every pair \cite{cui2022channel}, so the CPU can predict
 \begin{equation}
-  \hat\mu_l(k,j)=\big|\mathbf b(\hat\theta_{l,k},\hat r_{l,k})^{\mathsf H}\mathbf b(\hat\theta_{l,j},\hat r_{l,j})\big|
-\end{equation}
-and score
-\begin{equation}
+  \hat\mu_l(k,j)=\big|\mathbf b(\hat\theta_{l,k},\hat r_{l,k})^{\mathsf H}\mathbf b(\hat\theta_{l,j},\hat r_{l,j})\big|,
+  \qquad
   \mathrm{score}_{l,k}=\hat\gamma_{l,k}\Big(1-\max_{j\in\mathcal I_k}\hat\mu_l(k,j)^2\Big),
 \end{equation}
-where $\mathcal I_k$ are the strongest co-channel users of $k$. Your simulations deliberately create \emph{collinear user pairs}, where this score should help most. With sparse APs (see the sparse-array document), $\hat\mu$ also captures grating-lobe ambiguities.
+with $\mathcal I_k$ the strongest co-channel users of $k$. Your simulations create collinear user pairs, where this should help most. With sparse APs, $\hat\mu$ also reflects grating-lobe ambiguities; note that an aliased angle estimate leaves the channel vector correct but makes $\hat\mu$ wrong \cite{chen2024nearfield}, so use the channel vectors directly when angles may alias.
 
-\subsection{P4: Graph-based search with the new objective (link to GBSE/GBSA)}
-Use the GBSE/GBSA framework of [8], [9] as the optimizer, but with an objective that includes the detector:
+\subsection{P4: Graph-based search with the new objective}
+Use the GBSE/GBSA framework \cite{tesolin2026gbse,tesolin2026gbsa} as the optimizer, with an objective that includes the detector (proposed here):
 \begin{equation}
-  J(\{\mathcal S_k\})=\sum_k \mathrm{SE}_k-\lambda\,K\bar B\quad\text{or}\quad\mathrm{EE}\ \text{(M8) with the gate term}.
+  J(\{\mathcal S_k\})=\sum_k \mathrm{SE}_k-\lambda\,K\bar B\quad\text{or}\quad\mathrm{EE}\ \text{(M8) with the gate term},
 \end{equation}
-Start the search from the P1/P2 solution (warm start), which cuts the number of iterations. This shows continuity with your group's work and gives a near-optimal benchmark for P1/P2.
+started from the P1/P2 solution. GBSE searches Hamming neighbourhoods of the serving-state graph \cite[Sec.~III]{tesolin2026gbse}, and GBSA reaches near-optimal RANEE with linear per-iteration complexity \cite{tesolin2026gbsa}; the warm start should reduce the number of iterations.
 
 \subsection{Recommendation}
 \begin{keybox}{What to propose}
-Make \textbf{P1 + P2} the proposed method (analytical, $\mathcal O(L\log L)$ per user, with Proposition~1 and the fronthaul model). Add \textbf{P3} as the near-field enhancement. Use \textbf{P4} (GBSE with the new objective) as an upper-performance benchmark. A GNN version can be future work.
+\textbf{P1 + P2} as the proposed method (analytical, $\mathcal O(L\log L)$ per user, with Proposition~1 and the gate model), \textbf{P3} as the near-field enhancement, and \textbf{P4} as the near-optimal benchmark. A GNN version \cite{ranasinghe2021gnn,pereira2025gnn} can be future work.
 \end{keybox}
 
 \begin{keybox}{Algorithm 1 --- P1+P2: detector-aware clustering (per coherence block, at the CPU)}
 \textbf{Input:} estimates $\hat{\mathbf h}_{l,k}$, error covariances $\mathbf C_{l,k}$, power $p$, target $\varepsilon$, gate radius $d_{\rm abs}$.
 \begin{enumerate}[leftmargin=*]
-  \item For every AP $l$: compute the local MMSE combiners $\hat{\mathbf v}_{l,k}$ for all users and the SINRs $\hat\gamma_{l,k}$ from \eqref{eq:p1}.
+  \item For every AP $l$: compute the local MMSE combiners $\hat{\mathbf v}_{l,k}$ and the SINRs $\hat\gamma_{l,k}$ from \eqref{eq:p1}.
   \item For every user $k$:
   \begin{enumerate}
-    \item sort the APs so that $\hat\gamma_{l_1,k}\ge\hat\gamma_{l_2,k}\ge\dots$, and form the cumulative sums $\Gamma^{(m)}=\sum_{i\le m}\hat\gamma_{l_i,k}$;
+    \item sort the APs so that $\hat\gamma_{l_1,k}\ge\hat\gamma_{l_2,k}\ge\dots$, and form $\Gamma^{(m)}=\sum_{i\le m}\hat\gamma_{l_i,k}$;
     \item P1: $m_\varepsilon=\min\{m:\Gamma^{(m)}\ge(1-\varepsilon)\Gamma^{(L)}\}$;
-    \item P2: $m^\star=\arg\min_m\big[m+e^{-d_{\rm abs}^2(1+\Gamma^{(m)})}(L-m)\big]$;
-    \item $\mathcal S_k=\{l_1,\dots,l_{\max(m_\varepsilon,m^\star)}\}$ (use $\min$ instead of $\max$ for a fronthaul-first design).
+    \item P2: $m^\star$ from \eqref{eq:p2};
+    \item $\mathcal S_k=\{l_1,\dots,l_{\max(m_\varepsilon,m^\star)}\}$ (use $\min$ for a fronthaul-first design).
   \end{enumerate}
 \end{enumerate}
 \textbf{Cost:} $\mathcal O(L\log L)$ per user after the combiners, which the receiver computes anyway.
@@ -229,66 +240,84 @@ Make \textbf{P1 + P2} the proposed method (analytical, $\mathcal O(L\log L)$ per
 \section{How to show the gain (evaluation design)}
 \label{sec:eval}
 
-\paragraph{Baselines.} Single-AP (lower bound), CN/DCC [1], IR [6], effective-gain AP selection [10], GBSE/GBSA with RANEE [8], [9], full cooperation (upper bound for BER, worst for fronthaul).
+\paragraph{Baselines.} Single-AP; CN/DCC \cite{bjornson2020scalable}; BSR with its own threshold rule \cite[eqs.~(11)--(13)]{mashdour2024study}; effective-gain AP selection \cite{dao2020effective}; GBSE/GBSA with RANEE \cite{tesolin2026gbse,tesolin2026gbsa}; full cooperation.
 
-\paragraph{Regime.} Clustering only matters when interference matters. Use at least one of: more users ($K=16$--$32$); fewer antennas per AP ($N=16$--$32$); the collinear pairs you already generate; sparse APs; estimated CSI. Report the regime honestly.
+\paragraph{Regime.} Clustering only matters when interference matters: use at least one of more users ($K=16$--$32$), fewer antennas per AP ($N=16$--$32$), collinear pairs, sparse APs, or estimated CSI. GBSA, for example, uses a small network (6 APs, up to 5 users) to compare with the exhaustive optimum \cite[Sec.~VI]{tesolin2026gbsa}; HybridUA varies the number of users, CPUs and the area \cite[Sec.~IV]{lai2024hybridua}.
 
 \paragraph{Figures.}
-\begin{enumerate}
-  \item \textbf{BER vs.\ fronthaul} $\bar B$ at fixed SNR (sweep $\varepsilon$ for P1, the threshold for CN, the size for IR): the headline trade-off.
-  \item $\bar B$ and gate firing rate $\rho$ vs.\ SNR, per rule; model of P2 vs.\ measured $\rho$.
-  \item CDF of $\kappa_k$ and of $\Delta_k$ per rule (validates Proposition~1).
-  \item Per-user SE CDF and Jain's index.
-  \item Cluster-size histogram, near-field vs.\ far-field users.
-  \item EE vs.\ maximum cluster size (as in GBSA [9]).
-  \item Run time of the clustering algorithms vs.\ $K$.
-\end{enumerate}
+(1) BER vs.\ fronthaul $\bar B$ at fixed SNR (headline);
+(2) $\bar B$ and $\rho$ vs.\ SNR, with the P2 model vs.\ measurement;
+(3) CDFs of $\kappa_k$ and $\Delta_k$ (validates Proposition~1);
+(4) per-user SE CDF, 5\% outage and Jain's index;
+(5) cluster-size histogram, near- vs.\ far-field users;
+(6) EE vs.\ maximum cluster size, as in \cite[Fig.~2]{tesolin2026gbsa};
+(7) clustering run time vs.\ $K$.
 
 %=====================================================================
 \section{Implementation notes for your MATLAB code}
 \label{sec:impl}
 \begin{enumerate}
-  \item Compute the clusters \emph{after} channel estimation in each SNR loop, from $\hat{\mathbf h}$ and $\mathbf C$ (as \texttt{D\_BSR\_s} is computed now). Never use \texttt{h\_det\_all} in a clustering rule for an estimated-CSI result; with \texttt{genie\_csi = false} the estimates are authentic.
-  \item Do \emph{not} tie the cluster size to \texttt{D\_CN}; let each rule choose its size.
-  \item Fix the master-AP scale (Issue 1).
-  \item Reuse what the code already measures: \texttt{etaXap\_acc} ($\rho$), \texttt{loadBSR\_acc} (size), \texttt{mBERrt*} (per-user BER for SE), and add $\kappa_k$, $\Delta_k$ and Jain's index.
-  \item Run the clustering rules on the \emph{same} channel and noise realizations, so that differences are not Monte Carlo noise.
+  \item Compute clusters after channel estimation in each SNR loop, from $\hat{\mathbf h}$ and $\mathbf C$. With \texttt{genie\_csi = false} the estimates are authentic; never use \texttt{h\_det\_all} in a clustering rule for an estimated-CSI result.
+  \item Do not tie the cluster size to \texttt{D\_CN}; implement the average-rate threshold of \cite[eqs.~(12)--(13)]{mashdour2024study} for the IR baseline.
+  \item Fix the master-AP scale (Issue~1).
+  \item Reuse \texttt{etaXap\_acc} ($\rho$), \texttt{loadBSR\_acc} (size) and \texttt{mBERrt*} (per-user BER); add $\kappa_k$, $\Delta_k$ and Jain's index.
+  \item Run all rules on the same channel and noise realizations.
 \end{enumerate}
 
 \begin{warnbox}{Honest risks}
 \begin{itemize}
-  \item In the default regime ($K=8$, $N=64$) all rules may give the same BER. That is expected; the gain must be shown in fronthaul and EE at equal BER.
-  \item The gate model in P2 assumes a Gaussian fused error and ignores the disks around other constellation points; it is an approximation. Validate it against the measured rate before relying on it.
-  \item P3 depends on the accuracy of the estimated angle and range; report its sensitivity to estimation error.
+  \item In the default regime all rules may give the same BER; show the gain as fronthaul and EE at equal BER.
+  \item The gate model in P2 assumes a Gaussian fused error and ignores the disks around other points; validate it against the measured rate.
+  \item P3 depends on the accuracy of estimated angles and ranges.
+  \item The BSR analysis in \cite{mashdour2024study} uses a downlink model; the published letter \cite{mashdour2024wcl} was not available here and may differ in details.
 \end{itemize}
 \end{warnbox}
 
 %=====================================================================
+\section*{Verification status of the references}
+\addcontentsline{toc}{section}{Verification status of the references}
+\begin{table}[h]
+\centering
+\caption{What was checked for each reference.}
+\label{tab:verify}
+\begin{tabular}{@{}p{0.55\linewidth}p{0.38\linewidth}@{}}
+\toprule
+\textbf{References} & \textbf{Checked against}\\
+\midrule
+\cite{mashdour2024study,tesolin2026gbse,tesolin2026gbsa,lai2024hybridua,wang2026combining,chen2024nearfield} & Full text.\\
+\cite{haider2026icassp,haider2026vtc} & Your submitted papers.\\
+\cite{mashdour2024wcl,ssettumba2024iic,ssettumba2024idd,cui2022channel,bjornson2020scalable,demir2021foundations} & As cited in your papers.\\
+\cite{buzzi2017uc,ngo2018ee,dao2020effective,ammar2022survey,gottsch2023fairness,gottsch2025fronthaul,ranasinghe2021gnn,pereira2025gnn,mylonopoulos2025los,jain1984fairness} & Title, authors and abstract only (web search).\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================================
 \begin{thebibliography}{99}\small
-\bibitem{bjsc} E.~Bj\"ornson and L.~Sanguinetti, ``Scalable cell-free massive MIMO systems,'' \emph{IEEE Trans.\ Commun.}, vol.~68, no.~7, pp.~4247--4261, 2020.
-\bibitem{found} \"O.~T.~Demir, E.~Bj\"ornson, and L.~Sanguinetti, ``Foundations of user-centric cell-free massive MIMO,'' \emph{Found.\ Trends Signal Process.}, vol.~14, no.~3--4, pp.~162--472, 2021.
-\bibitem{ngo17} H.~Q.~Ngo, A.~Ashikhmin, H.~Yang, E.~G.~Larsson, and T.~L.~Marzetta, ``Cell-free massive MIMO versus small cells,'' \emph{IEEE Trans.\ Wireless Commun.}, vol.~16, no.~3, pp.~1834--1850, 2017.
-\bibitem{ngo18} H.~Q.~Ngo, L.-N.~Tran, T.~Q.~Duong, M.~Matthaiou, and E.~G.~Larsson, ``On the total energy efficiency of cell-free massive MIMO,'' \emph{IEEE Trans.\ Green Commun.\ Netw.}, vol.~2, no.~1, pp.~25--39, 2018.
-\bibitem{buzzi} S.~Buzzi and C.~D'Andrea, ``Cell-free massive MIMO: User-centric approach,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~6, no.~6, pp.~706--709, 2017.
-\bibitem{mash} S.~Mashdour, S.~Salehi, R.~C.~de~Lamare, A.~Schmeink, and J.~P.~S.~H.~Lima, ``Clustering and scheduling with fairness based on information rates for cell-free MIMO networks,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~13, no.~7, pp.~1798--1802, 2024.
-\bibitem{mash2} S.~Mashdour and R.~C.~de~Lamare, ``Study of clustering techniques and scheduling algorithms with fairness for cell-free MIMO networks,'' arXiv:2404.18032, 2024.
-\bibitem{gbse} J.~C.~C.~Tesolin and R.~C.~de~Lamare, ``Mixed-integer optimization based on graph-based decomposition for user-centric cell-free networks,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~15, 2026, doi:10.1109/LWC.2026.3700959.
-\bibitem{gbsa} J.~C.~C.~Tesolin and R.~C.~de~Lamare, ``Study of graph-based search for energy-efficient clustering in cell-free massive MIMO networks,'' arXiv:2607.04074, 2026.
-\bibitem{dao} H.~T.~Dao and S.~Kim, ``Effective channel gain-based access point selection in cell-free massive MIMO systems,'' \emph{IEEE Access}, vol.~8, pp.~108127--108132, 2020.
-\bibitem{gnn1} V.~Ranasinghe, N.~Rajatheva, and M.~Latva-aho, ``Graph neural network based access point selection for cell-free massive MIMO systems,'' in \emph{Proc.\ IEEE GLOBECOM}, 2021; arXiv:2107.02884.
-\bibitem{gnn2} Pereira-Ruis\'anchez \emph{et al.}, ``A GNN-based approach to AP cooperation cluster formation in cell-free massive MIMO,'' in \emph{Proc.\ IEEE VTC2025-Spring}, doi:10.1109/VTC2025-SPRING65109.2025.11174418 (initials not verified).
-\bibitem{gott1} F.~G\"ottsch \emph{et al.}, ``User-centric clustering under fairness scheduling in cell-free massive MIMO,'' arXiv:2305.08363, 2023 (full author list not verified).
-\bibitem{hybridua} ``Hybrid network- and user-centric scalable cell-free massive MIMO for fronthaul signaling minimization,'' arXiv:2412.15475, 2024 (authors not verified).
-\bibitem{ammar} M.~Ammar, R.~Adve, S.~Valaee, and W.~Yu, ``User-centric cell-free massive MIMO networks: A survey of opportunities, challenges and solutions,'' \emph{IEEE Commun.\ Surveys Tuts.}, vol.~24, no.~1, pp.~611--652, 2022.
-\bibitem{sset1} T.~Ssettumba, S.~Mashdour, L.~T.~N.~Landau, P.~B.~da~Silva, and R.~C.~de~Lamare, ``Iterative interference cancellation for clustered cell-free massive MIMO networks,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~14, no.~2, pp.~509--513, 2024.
-\bibitem{sset2} T.~Ssettumba, Z.~Shao, L.~T.~N.~Landau, M.~S.~P.~Facina, P.~R.~B.~da~Silva, and R.~C.~de~Lamare, ``Centralized and decentralized IDD schemes for cell-free massive MIMO systems: AP selection and LLR refinement,'' \emph{IEEE Access}, vol.~12, pp.~62392--62406, 2024.
-\bibitem{own} N.~Haider and R.~C.~de~Lamare, ``Cross-AP list-based interference cancellation for near-field cell-free XL-MIMO systems'' (ICASSP submission) and ``Cross-AP channel estimation and interference cancellation for near-field cell-free XL-MIMO systems'' (VTC submission), 2026.
-\bibitem{wangcomb} Z.~Wang, J.~Zhang, B.~Xu, D.~Niyato, B.~Ai, S.~Mao, and Z.~Han, ``Low-complexity distributed combining design for near-field cell-free XL-MIMO systems,'' \emph{IEEE Trans.\ Wireless Commun.}, vol.~25, pp.~11799--11815, 2026.
-\bibitem{mylo} G.~Mylonopoulos, G.~Interdonato, S.~Buzzi, and P.~Liu, ``Leveraging line-of-sight propagation for near-field beamfocusing in cell-free networks,'' arXiv:2503.21599, 2025.
-\bibitem{cui} M.~Cui and L.~Dai, ``Channel estimation for extremely large-scale MIMO: Far-field or near-field?'' \emph{IEEE Trans.\ Commun.}, vol.~70, no.~4, pp.~2663--2677, 2022.
-\bibitem{jain} R.~Jain, D.-M.~Chiu, and W.~Hawe, ``A quantitative measure of fairness and discrimination for resource allocation in shared computer systems,'' DEC Tech.\ Rep.\ TR-301, 1984.
-\bibitem{haiderwcl} N.~Haider and R.~C.~de~Lamare, ``Iterative interference cancellation for mixed near- and far-field XL-MIMO systems,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~15, pp.~5323--5327, 2026.
-\bibitem{gott2} F.~G\"ottsch \emph{et al.}, ``Optimizing fronthaul quantization for flexible user load in cell-free massive MIMO,'' arXiv:2510.06734, 2025 (full author list not verified).
+\bibitem{haider2026icassp} N.~Haider and R.~C.~de~Lamare, ``Cross-AP list-based interference cancellation for near-field cell-free XL-MIMO systems,'' submitted to IEEE ICASSP, 2026.
+\bibitem{haider2026vtc} N.~Haider and R.~C.~de~Lamare, ``Cross-AP channel estimation and interference cancellation for near-field cell-free XL-MIMO systems,'' submitted to IEEE VTC, 2026.
+\bibitem{bjornson2020scalable} E.~Bj\"ornson and L.~Sanguinetti, ``Scalable cell-free massive MIMO systems,'' \emph{IEEE Trans.\ Commun.}, vol.~68, no.~7, pp.~4247--4261, 2020.
+\bibitem{demir2021foundations} \"O.~T.~Demir, E.~Bj\"ornson, and L.~Sanguinetti, ``Foundations of user-centric cell-free massive MIMO,'' \emph{Found.\ Trends Signal Process.}, vol.~14, no.~3--4, pp.~162--472, 2021.
+\bibitem{buzzi2017uc} S.~Buzzi and C.~D'Andrea, ``Cell-free massive MIMO: User-centric approach,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~6, no.~6, pp.~706--709, 2017.
+\bibitem{ngo2018ee} H.~Q.~Ngo, L.-N.~Tran, T.~Q.~Duong, M.~Matthaiou, and E.~G.~Larsson, ``On the total energy efficiency of cell-free massive MIMO,'' \emph{IEEE Trans.\ Green Commun.\ Netw.}, vol.~2, no.~1, pp.~25--39, 2018.
+\bibitem{dao2020effective} H.~T.~Dao and S.~Kim, ``Effective channel gain-based access point selection in cell-free massive MIMO systems,'' \emph{IEEE Access}, vol.~8, pp.~108127--108132, 2020.
+\bibitem{ammar2022survey} M.~Ammar, R.~Adve, S.~Valaee, and W.~Yu, ``User-centric cell-free massive MIMO networks: A survey of opportunities, challenges and solutions,'' \emph{IEEE Commun.\ Surveys Tuts.}, vol.~24, no.~1, pp.~611--652, 2022.
+\bibitem{mashdour2024wcl} S.~Mashdour, S.~Salehi, R.~C.~de~Lamare, A.~Schmeink, and J.~P.~S.~H.~Lima, ``Clustering and scheduling with fairness based on information rates for cell-free MIMO networks,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~13, no.~7, pp.~1798--1802, 2024.
+\bibitem{mashdour2024study} S.~Mashdour and R.~C.~de~Lamare, ``Study of clustering techniques and scheduling algorithms with fairness for cell-free MIMO networks,'' arXiv:2404.18032v1, Apr.\ 2024.
+\bibitem{tesolin2026gbse} J.~C.~C.~Tesolin and R.~C.~de~Lamare, ``Mixed-integer optimization based on graph-based decomposition for user-centric cell-free networks,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~15, pp.~3516--, 2026, doi:10.1109/LWC.2026.3700959.
+\bibitem{tesolin2026gbsa} J.~C.~C.~Tesolin and R.~C.~de~Lamare, ``Study of graph-based search for energy-efficient clustering in cell-free massive MIMO networks,'' arXiv:2607.04074v1, Jul.\ 2026.
+\bibitem{lai2024hybridua} P.~Lai, W.~Xiang, W.~D.~Lukito, K.~T.~Phan, P.~Cheng, C.~Liu, and G.~Mao, ``Hybrid network- and user-centric scalable cell-free massive MIMO for fronthaul signaling minimization,'' arXiv:2412.15475v1, Dec.\ 2024.
+\bibitem{gottsch2023fairness} F.~G\"ottsch \emph{et al.}, ``User-centric clustering under fairness scheduling in cell-free massive MIMO,'' arXiv:2305.08363, 2023.
+\bibitem{gottsch2025fronthaul} F.~G\"ottsch \emph{et al.}, ``Optimizing fronthaul quantization for flexible user load in cell-free massive MIMO,'' arXiv:2510.06734, 2025.
+\bibitem{ranasinghe2021gnn} V.~Ranasinghe, N.~Rajatheva, and M.~Latva-aho, ``Graph neural network based access point selection for cell-free massive MIMO systems,'' in \emph{Proc.\ IEEE GLOBECOM}, 2021; arXiv:2107.02884.
+\bibitem{pereira2025gnn} Pereira-Ruis\'anchez \emph{et al.}, ``A GNN-based approach to AP cooperation cluster formation in cell-free massive MIMO,'' in \emph{Proc.\ IEEE VTC2025-Spring}, doi:10.1109/VTC2025-SPRING65109.2025.11174418.
+\bibitem{ssettumba2024iic} T.~Ssettumba, S.~Mashdour, L.~T.~N.~Landau, P.~B.~da~Silva, and R.~C.~de~Lamare, ``Iterative interference cancellation for clustered cell-free massive MIMO networks,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~14, no.~2, pp.~509--513, 2024.
+\bibitem{ssettumba2024idd} T.~Ssettumba, Z.~Shao, L.~T.~N.~Landau, M.~S.~P.~Facina, P.~R.~B.~da~Silva, and R.~C.~de~Lamare, ``Centralized and decentralized IDD schemes for cell-free massive MIMO systems: AP selection and LLR refinement,'' \emph{IEEE Access}, vol.~12, pp.~62392--62406, 2024.
+\bibitem{wang2026combining} Z.~Wang, J.~Zhang, B.~Xu, D.~Niyato, B.~Ai, S.~Mao, and Z.~Han, ``Low-complexity distributed combining design for near-field cell-free XL-MIMO systems,'' \emph{IEEE Trans.\ Wireless Commun.}, vol.~25, pp.~11799--11815, 2026; arXiv:2602.03581v1.
+\bibitem{mylonopoulos2025los} G.~Mylonopoulos, G.~Interdonato, S.~Buzzi, and P.~Liu, ``Leveraging line-of-sight propagation for near-field beamfocusing in cell-free networks,'' arXiv:2503.21599, 2025.
+\bibitem{cui2022channel} M.~Cui and L.~Dai, ``Channel estimation for extremely large-scale MIMO: Far-field or near-field?'' \emph{IEEE Trans.\ Commun.}, vol.~70, no.~4, pp.~2663--2677, 2022.
+\bibitem{chen2024nearfield} K.~Chen, C.~Qi, G.~Y.~Li, and O.~A.~Dobre, ``Near-field multiuser communications based on sparse arrays,'' \emph{IEEE J.\ Sel.\ Topics Signal Process.}, accepted, 2024; arXiv:2406.09238v1.
+\bibitem{jain1984fairness} R.~Jain, D.-M.~Chiu, and W.~Hawe, ``A quantitative measure of fairness and discrimination for resource allocation in shared computer systems,'' DEC Tech.\ Rep.\ TR-301, 1984.
 \end{thebibliography}
 
 \end{document}

@@ -6,6 +6,7 @@
 \usepackage[dvipsnames]{xcolor}
 \usepackage[most]{tcolorbox}
 \usepackage{microtype}
+\usepackage{cite}
 \usepackage[colorlinks=true,linkcolor=NavyBlue,citecolor=ForestGreen,urlcolor=NavyBlue]{hyperref}
 \setlist{itemsep=2pt,topsep=3pt}
 \newtcolorbox{keybox}[1]{colback=NavyBlue!5,colframe=NavyBlue!70,fonttitle=\bfseries,title={#1},left=4pt,right=4pt,top=3pt,bottom=3pt}
@@ -14,7 +15,8 @@
 \newcommand{\bb}{\mathbf{b}}
 \newcommand{\h}{\mathbf{h}}
 \title{\textbf{Sparse Arrays for Near-Field Cell-Free XL-MIMO}\\[2pt]
-\large A plain-language guide, literature map, and plan for extending the ICASSP and VTC papers into a Transactions paper}
+\large A plain-language guide, literature map, and plan for extending the ICASSP and VTC papers into a Transactions paper\\[2pt]
+\normalsize (Version 2: every claim checked against the full texts of the cited papers)}
 \author{Prepared for Nayyab Haider (PUC-Rio)}
 \date{October 2026}
 
@@ -22,16 +24,18 @@
 \maketitle
 
 \begin{keybox}{How to read this document}
-Sections~\ref{sec:what}--\ref{sec:why} explain what a sparse array is and why it matters in the near field, using numbers computed for \emph{your} system ($L=8$ APs, $N=64$ antennas, $f_c=3$\,GHz, $300\times300$\,m$^2$).
-Section~\ref{sec:rules} lists the rules you must respect. Section~\ref{sec:math} collects the equations.
-Section~\ref{sec:lit} maps the literature, and Section~\ref{sec:gap} states the gap.
-Sections~\ref{sec:options}--\ref{sec:plan} give concrete options and a step-by-step plan for the Transactions paper.
+Sections~\ref{sec:what}--\ref{sec:why} explain what a sparse array is and why it matters in the near field, with numbers computed for \emph{your} system ($L=8$ APs, $N=64$ antennas, $f_c=3$\,GHz, $300\times300$\,m$^2$).
+Section~\ref{sec:rules} lists the rules to respect, Section~\ref{sec:math} collects the equations, Section~\ref{sec:lit} maps the literature and Section~\ref{sec:gap} states the gap.
+Sections~\ref{sec:options}--\ref{sec:plan} give options and a plan for the Transactions paper.
 \end{keybox}
 
-\begin{warnbox}{Scope of the literature search (read this first)}
-The search was done through a web search engine. Direct access to arXiv, Google Scholar, IEEE Xplore, ResearchGate and the GitHub API was blocked by the network policy of the computing environment, so full texts could not be opened and GitHub code could not be browsed.
-Every reference below was checked for title and venue; where the author list could not be verified it is marked ``authors not verified''. Before citing any of them in a paper, open the PDF and confirm the details and the exact claims.
-``No paper found'' in Section~\ref{sec:gap} means ``not found by this search'', not ``does not exist''.
+\begin{warnbox}{Citation conventions and verification status}
+\begin{itemize}[leftmargin=*]
+  \item ``[x, eq.~(y)]'', ``[x, Lemma~z]'' etc.\ point to the exact place in the cited paper. Equation, lemma and section numbers refer to the arXiv versions listed in the bibliography.
+  \item \textbf{``Derived here''} marks a result that does not appear in a paper. These are short derivations under the stated approximation; check them before using them in a paper.
+  \item \textbf{``Computed here''} marks numbers obtained with the exact NUSW model for your parameters.
+  \item The full texts of \cite{bjornson2021primer,chen2025exploring,chen2024nearfield,zhou2025sparse,wang2024sparsemimo,hussain2026thinning,li2023modular,kosasih2025mla,wang2026combining} were read and checked. All other references were checked only at the level of title, authors and abstract; this is stated in Table~\ref{tab:verify} at the end.
+\end{itemize}
 \end{warnbox}
 
 \tableofcontents
@@ -41,41 +45,40 @@ Every reference below was checked for title and venue; where the author list cou
 \section{Where your work stands, and what a Transactions paper needs}
 \label{sec:context}
 
-\textbf{ICASSP paper.} Cross-AP list-based SIC for hybrid near-/far-field cell-free XL-MIMO, with \emph{perfect} CSI. The list is formed from both the cluster-fused and the all-AP fused soft estimates, and cancellation is network-wide. An LDPC-coded IDD scheme is added.
+\textbf{ICASSP paper.} Cross-AP list-based SIC for hybrid near-/far-field cell-free XL-MIMO with \emph{perfect} CSI \cite{haider2026icassp}: the candidate list is formed from both the cluster-fused and the all-AP fused soft estimates, cancellation is network-wide, and an LDPC-coded IDD scheme is added.
 
-\textbf{VTC paper.} The same detector, plus \emph{estimated} CSI from polar-domain channel estimation over all AP--UE pairs [1].
+\textbf{VTC paper.} The same detector with \emph{estimated} CSI from polar-domain channel estimation over all AP--UE pairs \cite{haider2026vtc,cui2022channel}.
 
-\textbf{What a Transactions paper (IEEE TWC or IEEE TCOM) needs.}
-A journal reviewer will expect (i) a new technical dimension, not only a merge of the two conference papers, (ii) analysis, not only simulations, and (iii) a broad numerical study.
-A sparse array at each AP is a strong candidate for this new dimension. It changes three things your papers depend on:
+\textbf{What a Transactions paper needs.} A new technical dimension (not only a merge of the two conference papers), analysis, and a broad numerical study. Sparse APs are a strong candidate, because they change three things your papers rely on:
 \begin{enumerate}
-  \item \emph{where} the near field is (the Rayleigh distance grows with the square of the spacing);
-  \item \emph{how well} users at the same angle but different range can be separated (this is the ``range-domain resolution'' your papers rely on);
-  \item \emph{what goes wrong} (grating lobes), and the cross-AP idea of your detector is a natural way to fix it.
+  \item \emph{where} the near field is: the Rayleigh distance grows with the square of the aperture \cite{lu2024tutorial,bjornson2021primer};
+  \item \emph{how well} co-angular users can be separated in range: resolution improves with the aperture \cite{chen2024nearfield,wang2024sparsemimo,zhou2025sparse};
+  \item \emph{what goes wrong}: grating lobes \cite{zhou2025sparse,chen2025exploring,chen2024nearfield}. Your cross-AP fusion is a natural way to fix this (Section~\ref{sec:why}).
 \end{enumerate}
 
 %=====================================================================
 \section{What is a sparse array?}
 \label{sec:what}
 
-A conventional uniform linear array (ULA) places its $N$ antennas at half-wavelength spacing $d=\lambda/2$. A \textbf{sparse array} uses spacing larger than $\lambda/2$, or places the antennas at non-uniform positions.
+A conventional uniform linear array (ULA) has spacing $d=\lambda/2$. A \textbf{sparse array} uses spacing larger than $\lambda/2$, or non-uniform positions \cite{zhou2025sparse,chen2024nearfield,li2024sparseisac}.
 
 \paragraph{Main families.}
 \begin{itemize}
-  \item \textbf{Uniform sparse ULA}: spacing $d=\eta\,\lambda/2$ with sparsity factor $\eta>1$ (for example $\eta=2$ or $4$). Element positions
+  \item \textbf{Uniform sparse ULA} (``linear sparse array'' (LSA) in \cite{zhou2025sparse}, ``uniform sparse array'' (USA) in \cite{chen2024nearfield}). Spacing $d=\eta\,\lambda/2$ with integer sparsity factor $\eta>1$; \cite{zhou2025sparse} writes $U$ and \cite{chen2024nearfield} writes $p$ for this factor. Positions:
   \begin{equation}
     p_n=\Big(n-\tfrac{N+1}{2}\Big)\,\eta\,\frac{\lambda}{2},\qquad n=1,\dots,N.
+    \label{eq:pos}
   \end{equation}
-  \item \textbf{Thinned array}: start from a dense ULA and switch off (or remove) some elements, so the aperture stays the same but fewer antennas and RF chains are used [10].
-  \item \textbf{Non-uniform sparse arrays}: the minimum-redundancy array (MRA) [18], the nested array [19] and the co-prime array [20]. Their positions are chosen so that the pairwise differences $p_m-p_n$ cover many values. This gives $\mathcal{O}(N^2)$ virtual elements in the difference co-array, which is very useful for sensing [9].
-  \item \textbf{Modular (or quasi-distributed) arrays}: several dense sub-arrays separated by large gaps [11], [12], [13], [14]. This is a sparse array at the level of sub-arrays.
+  \item \textbf{Thinned array}: a dense array in which only a subset of elements is active. The aperture stays the same with fewer RF chains; the active set can be reconfigured \cite{hussain2026thinning}.
+  \item \textbf{Non-uniform sparse arrays}: minimum-redundancy \cite{moffet1968mra}, nested \cite{pal2010nested} and co-prime \cite{vaidyanathan2011coprime} arrays, the extended co-prime array (ECA) of \cite{zhou2025sparse}, and position-optimised arrays \cite{chen2024nearfield}. Non-uniform spacing removes the exact periodicity that causes grating lobes \cite{chen2024nearfield,zhou2025sparse}.
+  \item \textbf{Modular arrays}: dense sub-arrays separated by large gaps \cite{li2023modular,kosasih2025mla}.
 \end{itemize}
 
-\paragraph{The two ways to compare a sparse array with a dense array.}
-These give very different conclusions, so always state which one you use:
+\paragraph{Two ways to compare with a dense array.}
+These give different conclusions, so always state which one you use:
 \begin{itemize}
-  \item \textbf{Same number of antennas $N$}: the sparse array has a larger aperture $D=(N-1)\eta\lambda/2$. You gain resolution and a larger near-field region, and you pay with grating lobes.
-  \item \textbf{Same aperture $D$}: the sparse array uses about $N/\eta$ antennas. Resolution is (almost) unchanged, and you save hardware, power and computation. You still pay with grating lobes.
+  \item \textbf{Same number of antennas $N$}: the sparse array has a larger aperture. This is the setting of \cite{wang2024sparsemimo,zhou2025sparse} (``given the same number of array elements'').
+  \item \textbf{Same aperture}: about $N/\eta$ antennas, which is the motivation of thinning \cite{hussain2026thinning} and of modular arrays with a limited number of antennas \cite{kosasih2025mla}.
 \end{itemize}
 
 %=====================================================================
@@ -83,67 +86,95 @@ These give very different conclusions, so always state which one you use:
 \label{sec:why}
 
 \subsection{The near-field region grows with $\eta^2$}
-The Rayleigh distance used in your papers (eq.~(2) of the VTC paper) is $R=2D^2/\lambda$. With $D=(N-1)\eta\lambda/2$,
+With aperture $D=(N-1)d$, the Rayleigh distance used in your papers (eq.~(2) of \cite{haider2026vtc}, following \cite{lu2024tutorial}) is $R=2D^2/\lambda$. With $d=\eta\lambda/2$:
 \begin{equation}
-  R(\eta)=\frac{(N-1)^2\eta^2\lambda}{2}=\eta^2\,R(1).
+  R(\eta)=\frac{(N-1)^2\eta^2\lambda}{2}=\eta^2\,R(1)\qquad\text{(derived here from $R=2D^2/\lambda$).}
   \label{eq:rayleigh}
 \end{equation}
-\textbf{In plain words: doubling the spacing makes the near-field region four times larger.}
+\textbf{Doubling the spacing makes the near-field region four times larger.}
 
-\subsection{Distance (range) focusing needs $r$ well inside $R$}
-Being inside $R$ is not enough to get a sharp focus in distance. The near-field beamforming primer [3] shows that a beam has a \emph{finite depth} only for distances below about $R/10$; beyond that, the beam extends to infinity in range, just like a far-field beam.
-For a focus at distance $F<R/\alpha$, the 3-dB depth interval has the form [3], [4]
+\subsection{Range focusing needs the user well inside $R$}
+Being inside $R$ is not enough for a sharp focus in distance.
+\begin{itemize}
+  \item For a \emph{planar} array focusing on its axis, Bj\"ornson \emph{et al.} prove that the 3-dB depth of focus is finite only if the focal distance $F<d_{\rm FA}/10$, where $d_{\rm FA}=2D_{\rm diag}^2/\lambda$ uses the array diagonal \cite[eq.~(17), Theorem~1, eq.~(23)]{bjornson2021primer}.
+  \item For a \emph{linear} (dense or sparse) array, Zhou \emph{et al.} give the same structure \cite[Proposition~2, eq.~(22)]{zhou2025sparse}:
+  \begin{equation}
+    \mathrm{BD}_{3\,\rm dB}=
+    \begin{cases}
+      \dfrac{2r_0^2\,r_{\rm th}}{r_{\rm th}^2-r_0^2}, & r_0<r_{\rm th},\\[6pt]
+      \infty, & r_0\ge r_{\rm th},
+    \end{cases}
+    \qquad
+    r_{\rm th}\approx\frac{Q^2U^2d_0\cos^2\theta_0}{4\beta_{3\rm dB}^2},\quad \beta_{3\rm dB}=1.6,
+    \label{eq:depth}
+  \end{equation}
+  with $Q$ antennas, sparsity $U$ (our $\eta$), $d_0=\lambda/2$ and user angle $\theta_0$.
+\end{itemize}
+Since $R\approx Q^2U^2d_0$ for a ULA with $d_0=\lambda/2$, \eqref{eq:depth} gives (derived here)
 \begin{equation}
-  \frac{R\,F}{R+\alpha F}\;\le\; r\;\le\;\frac{R\,F}{R-\alpha F},
-  \qquad
-  \text{depth}=\frac{2\alpha F^2 R}{R^2-\alpha^2F^2},
-  \label{eq:depth}
+  r_{\rm th}\approx\frac{R\cos^2\theta_0}{10.24},
+  \label{eq:rth}
 \end{equation}
-where $\alpha\approx 10$ in [3]. The exact constant depends on the array geometry (values around 7 have been reported for ULAs), so treat $\alpha$ as ``between about 7 and 10''.
+which matches the $d_{\rm FA}/10$ rule of \cite{bjornson2021primer}, and adds the factor $\cos^2\theta_0$: focusing weakens towards end-fire and disappears at $\theta_0=\pm90^\circ$ \cite[Remark~1]{zhou2025sparse}. Zhou \emph{et al.} also note that a higher sparsity gives a more prominent focusing effect \cite[Remark~1]{zhou2025sparse}.
 
 \begin{table}[h]
 \centering
-\caption{Numbers for your system ($N=64$ unless stated, $f_c=3$\,GHz, $\lambda=0.1$\,m). ``Corr.'' is the correlation $|\bb_1^{\mathsf H}\bb_2|$ between the unit-norm near-field array vectors of two users at the \emph{same} angle and different ranges. Small values mean the array can separate them by range. Computed with the exact NUSW model.}
+\caption{Numbers computed here for your system ($f_c=3$\,GHz, $\lambda=0.1$\,m), with the exact NUSW model. $r_{\rm th}$ is \eqref{eq:rth} at broadside ($\theta_0=0$). ``Corr.'' is $|\bb_1^{\mathsf H}\bb_2|$ between the unit-norm array vectors of two users at the \emph{same} angle and different ranges; small values mean the AP can separate them by range.}
 \label{tab:numbers}
 \begin{tabular}{@{}cccccccc@{}}
 \toprule
-$\eta$ & $N$ & spacing & aperture $D$ & $R$ & $R/10$ & Corr.\ 30\,m vs 120\,m & Corr.\ 40\,m vs 80\,m\\
+$\eta$ & $N$ & spacing & aperture $D$ & $R$ & $r_{\rm th}$ & Corr.\ 30 vs 120\,m & Corr.\ 40 vs 80\,m\\
  & & [m] & [m] & [m] & [m] & ($\sin\theta=0$) & ($\sin\theta=0$)\\
 \midrule
-1 & 64 & 0.05 & 3.15 & 198 & 19.8 & 0.83 & 0.96\\
-2 & 64 & 0.10 & 6.30 & 794 & 79.4 & 0.36 & 0.46\\
-4 & 64 & 0.20 & 12.6 & 3175 & 318 & 0.15 & 0.24\\
+1 & 64 & 0.05 & 3.15 & 198 & 19.4 & 0.83 & 0.96\\
+2 & 64 & 0.10 & 6.30 & 794 & 77.5 & 0.36 & 0.46\\
+4 & 64 & 0.20 & 12.6 & 3175 & 310 & 0.15 & 0.24\\
 \midrule
-2 & 32 & 0.10 & 3.10 & 192 & 19.2 & 0.83 & 0.96\\
-4 & 16 & 0.20 & 3.00 & 180 & 18.0 & 0.83 & 0.96\\
+2 & 32 & 0.10 & 3.10 & 192 & 18.8 & 0.83 & 0.96\\
+4 & 16 & 0.20 & 3.00 & 180 & 17.6 & 0.83 & 0.96\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \begin{keybox}{What Table~\ref{tab:numbers} tells you about your current papers}
 \begin{itemize}
-  \item In your simulations each user is placed 20--150\,m from its anchor AP (other APs are farther). With compact APs ($\eta=1$), $R/10\approx 20$\,m, so \textbf{almost no link has a finite beam depth}. The links are ``near-field'' by the Rayleigh criterion, but the range-domain separation is weak: two co-angular users at 30\,m and 120\,m still have correlation 0.83.
-  \item With the \emph{same 64 antennas} at $\eta=2$ the correlation drops to 0.36, and at $\eta=4$ to 0.15. The range-domain resolution that your papers talk about becomes \emph{real}.
-  \item With the \emph{same aperture} (rows 4--5), the correlation does not change: range resolution depends on the aperture, not on the number of antennas. A thinned array gives the same separation with $2\times$ or $4\times$ fewer antennas.
+  \item Each user in your simulations is placed 20--150\,m from its anchor AP (other APs are farther). With compact APs ($\eta=1$), $r_{\rm th}\approx19$\,m at broadside, so \textbf{almost no link has a finite beam depth}. The links are near-field by the Rayleigh criterion of \cite{haider2026vtc}, but two co-angular users at 30\,m and 120\,m still have correlation 0.83.
+  \item With the \emph{same 64 antennas} at $\eta=2$ the correlation drops to 0.36, and at $\eta=4$ to 0.15. This agrees with the finding that larger spacing improves spatial resolution and multi-user sum rate \cite{chen2024nearfield,wang2024sparsemimo}.
+  \item With the \emph{same aperture} (rows 4--5) the correlation is unchanged: range resolution depends on the aperture, not on the number of antennas. A thinned array gives the same separation with $2\times$ or $4\times$ fewer antennas, which is the motivation of \cite{hussain2026thinning}.
 \end{itemize}
 \end{keybox}
 
 \subsection{More degrees of freedom}
-For a single-user MIMO link, the effective degrees of freedom (EDoF) grow with the array sparsity until they reach the maximum $\min(N_t,N_r)$ [8]. For multi-user detection, the analogous effect is that the local channel matrix $\mathbf{H}_l$ becomes better conditioned, which is exactly the ``rank enhancement'' of eq.~(10) in your papers.
+Wang \emph{et al.} define the effective degrees of freedom (EDoF) of a channel $\mathbf H$ as \cite[eq.~(13)]{wang2024sparsemimo}
+\begin{equation}
+  \mathrm{EDoF}=\left(\frac{\mathrm{tr}(\mathbf H\mathbf H^{\mathsf H})}{\|\mathbf H\mathbf H^{\mathsf H}\|_F}\right)^2,
+  \label{eq:edof}
+\end{equation}
+and prove, for single-user near-field sparse MIMO, a closed-form EDoF that increases with the array sparsity until it reaches $\min(N_t,N_r)$ \cite{wang2024sparsemimo}. Chen \emph{et al.} give a constraint under which the EDoF of sparse UPAs can be estimated in closed form \cite{chen2025exploring}. For multi-user detection, the analogous effect is a better-conditioned local channel matrix $\mathbf H_l$, i.e.\ the rank enhancement of eq.~(10) in \cite{haider2026vtc}.
 
-\subsection{Grating lobes: the price}
-A ULA with spacing $d>\lambda/2$ has an array factor that repeats in $\sin\theta$ with period $\lambda/d=2/\eta$. In the \emph{far field}, every repetition (a \emph{grating lobe}) has the \emph{same} gain as the main lobe. A user located at a grating-lobe angle cannot be separated from the intended user by that array.
-
-In the \emph{near field}, the picture changes (Section~\ref{sec:gl-math}): the grating lobe is not removed, but it is \textbf{focused at a different range}. Example computed for your array at $\eta=2$: focusing at $(\sin\theta,r)=(0.3,40\,\text{m})$ gives
+\subsection{Grating lobes: the price, and what the near field changes}
+\label{sec:gl}
+A uniform sparse ULA repeats its beam in $\sin\theta$ with period $2/\eta$. Its grating lobes are at \cite[Lemma~5, eq.~(23)]{zhou2025sparse}
+\begin{equation}
+  \sin\theta_u=\sin\theta_0+\frac{2u}{\eta},\qquad |\sin\theta_u|\le1,
+  \label{eq:glangle}
+\end{equation}
+and there are $2(\eta-1)$ of them over the whole angular range, each with beam height 1 (as strong as the main lobe) \cite[Lemma~5]{zhou2025sparse}.
 \begin{itemize}
-  \item gain 0.38 at the grating-lobe angle $\sin\theta=-0.7$ \emph{at the same range} (suppressed);
-  \item gain 0.89 at the grating-lobe angle at the \emph{shifted range} $r'=22.4$\,m (almost full);
-  \item gain 1.00 for a \emph{far-field} user at the grating-lobe angle (no suppression at all).
+  \item \textbf{Far field}: the grating lobes have the same peak power as the main lobe, so there is no suppression \cite[Sec.~IV, after Corollary~3]{chen2025exploring}.
+  \item \textbf{Near field, at the focal distance}: the grating lobes are suppressed, and more so for shorter focal distance and larger spacing \cite[Corollary~3, eq.~(40)]{chen2025exploring}. The same authors warn that ``particular attention should be paid to the few grating lobes that retain relatively high power'' \cite[Sec.~IV]{chen2025exploring}. The near-field model also suppresses the grating lobes of modular arrays better than the far-field model \cite{li2023modular}.
+  \item \textbf{Near field, at a shifted range}: the grating lobe is \emph{refocused} at another distance, where it is again as strong as the main lobe. Zhou \emph{et al.} show that at the grating-lobe angle the beam pattern depends on $\cos^2\theta_0/r_0-\cos^2\theta_u/r$ \cite[Lemma~6, eq.~(24)]{zhou2025sparse}, which vanishes at
+  \begin{equation}
+    r'=r_0\,\frac{\cos^2\theta_u}{\cos^2\theta_0}=r_0\,\frac{1-\sin^2\theta_u}{1-\sin^2\theta_0}
+    \label{eq:rprime}
+  \end{equation}
+  (rewritten here from \cite[eq.~(24)]{zhou2025sparse}). Zhou \emph{et al.} describe these lobes as ``focused on specific regions'' with power comparable to the main lobe \cite[Abstract, Remark~2]{zhou2025sparse}.
 \end{itemize}
-This is consistent with the literature [5], [7], [11]: near-field operation suppresses grating lobes ``at the same distance'', but not everywhere.
 
-\begin{ideabox}{Why this is good news for a cell-free paper}
-In a hybrid-field cell-free network, the grating-lobe ``danger zone'' of a user is different at every AP, because each AP sees the user at a different angle and range. Two users that collide on a grating lobe at one AP are almost never colliding at all APs. A detector that fuses \emph{all} APs, as your cross-AP list SIC does, can resolve what a single AP (or the serving cluster) cannot. Sparse APs therefore make the \emph{information surplus} $\Delta_k$ of your papers (eq.~(26) in VTC, eq.~(22) in ICASSP) larger and more important.
+\textbf{Example computed here} (your array, $\eta=2$, focus at $\sin\theta_0=0.3$, $r_0=40$\,m): gain 0.38 at the grating-lobe angle $\sin\theta_u=-0.7$ at the same range; gain 0.89 at the same angle at $r'=22.4$\,m from \eqref{eq:rprime}; gain 1.00 for a far-field user at that angle.
+
+\begin{ideabox}{Why this is good news for a cell-free paper (proposed here)}
+In a hybrid-field cell-free network each AP sees a user at a different angle and range, so the ambiguity point \eqref{eq:rprime} of a user is different at every AP. Two users that collide on a grating lobe at one AP are unlikely to collide at all APs. A detector that fuses \emph{all} APs, like your cross-AP list SIC \cite{haider2026icassp,haider2026vtc}, can then resolve what one AP, or the serving cluster, cannot. Sparse APs should therefore make the information surplus $\Delta_k$ of your papers (eq.~(26) of \cite{haider2026vtc}) larger. This is a hypothesis to prove; no paper found in this search has studied it.
 \end{ideabox}
 
 %=====================================================================
@@ -151,14 +182,14 @@ In a hybrid-field cell-free network, the grating-lobe ``danger zone'' of a user 
 \label{sec:rules}
 
 \begin{enumerate}[label=\textbf{R\arabic*.}]
-  \item \textbf{State the comparison basis.} Same $N$ or same aperture (Section~\ref{sec:what}). Reviewers reject comparisons where the sparse array silently gets a larger aperture \emph{and} the dense array is not given the same.
-  \item \textbf{Recompute the near/far-field boundary.} $R$ scales with $\eta^2$ (eq.~\eqref{eq:rayleigh}). In your $300\times300$\,m$^2$ area, $\eta=2$ already makes almost every link near-field ($R=794$\,m), so the \emph{hybrid} regime disappears. To keep a hybrid network you need a larger area, mixed APs (some dense, some sparse), or a boundary that also uses the angle (the effective Rayleigh distance depends on $1-\sin^2\theta$ [2], [31]).
-  \item \textbf{Range focusing needs $r \lesssim R/\alpha$}, $\alpha\approx 7$--$10$ (eq.~\eqref{eq:depth}). Check where your users are relative to this limit; report the fraction of links inside it.
-  \item \textbf{Account for grating lobes in every model and algorithm}: in the inter-user correlation, in the channel estimator's dictionary, and in the clustering rule. Far-field links of a sparse AP see grating lobes at full strength.
-  \item \textbf{Dictionary design for estimation.} The angular grid must be finer by $\eta$ (beams are $\eta$ times narrower), and atoms that differ by $2/\eta$ in $\sin\theta$ are nearly identical except for their curvature. Polar-domain OMP will confuse them unless the estimator explicitly tests the aliases (Section~\ref{sec:est}).
-  \item \textbf{Keep the element model consistent.} In your code the far-field correlation matrix uses the spacing in wavelengths (\texttt{d\_H = 0.5}); it must become $\eta/2$ together with the NUSW positions. A mismatch would silently compare two different arrays.
-  \item \textbf{Physical limits.} Large spacing reduces mutual coupling (good) but increases the physical size; element directivity reduces grating lobes near end-fire; wideband operation makes grating lobes split in frequency [9]. Your system is narrowband, so state this assumption.
-  \item \textbf{Non-uniform arrays} (nested, co-prime, MRA) break the periodicity, so there are no exact grating lobes, but the side-lobes rise. They are attractive for estimation (larger co-array) [9], [17], [19], [20].
+  \item \textbf{State the comparison basis}: same $N$ \cite{wang2024sparsemimo,zhou2025sparse} or same aperture \cite{hussain2026thinning,kosasih2025mla}.
+  \item \textbf{Recompute the near/far-field boundary.} $R\propto\eta^2$ \eqref{eq:rayleigh}. In your $300\times300$\,m$^2$ area, $\eta=2$ gives $R=794$\,m, so almost every link becomes near-field and the \emph{hybrid} regime disappears (computed here). Keep a hybrid network with a larger area, with mixed APs, or with a boundary that depends on angle as well \cite{lu2024tutorial,stutz2026boundaries}.
+  \item \textbf{Range focusing needs $r_0<r_{\rm th}$} \eqref{eq:depth}--\eqref{eq:rth} \cite{zhou2025sparse,bjornson2021primer}. Report the fraction of links inside $r_{\rm th}$, and remember the $\cos^2\theta_0$ factor.
+  \item \textbf{Account for grating lobes everywhere}: inter-user correlation, clustering, and any use of estimated angles. Far-field links of a sparse AP see grating lobes at full strength \cite{chen2025exploring}.
+  \item \textbf{Estimation dictionary.} The angular grid must be about $\eta$ times finer, because the main lobe narrows to a null-to-null width of $4/(N\eta)$ in $\sin\theta$ \cite[Proposition~1]{zhou2025sparse}. For one AP, the channel vector is periodic in the surrogate-distance/angle domain with period $2/\eta$, so a dictionary over one period is enough to estimate the \emph{vector} \cite[Sec.~IV-A, eq.~(47)]{chen2024nearfield}; see Section~\ref{sec:est} for what this means for angle and range.
+  \item \textbf{Keep the element model consistent.} In your code the far-field correlation matrix uses the spacing in wavelengths (\texttt{d\_H = 0.5}); it must become $\eta/2$ together with the NUSW positions (code check, done here).
+  \item \textbf{Hardware and channel assumptions.} A larger aperture raises cost, size and spatial non-stationarity concerns; thinning keeps the hardware but switches elements \cite{hussain2026thinning}. Wideband operation makes grating lobes move with frequency \cite{li2024sparseisac}; your system is narrowband, so state it. Recent near-field cell-free work uses dense planar arrays with LoS and NLoS components \cite{wang2026combining}; your model is a ULA with LoS (near-field) and correlated Rayleigh (far-field) links, so state the difference.
+  \item \textbf{Non-uniform arrays} (ECA, position-optimised, nested, co-prime) reduce the grating-lobe peaks: the ECA ``can greatly suppress the beam power of near-field grating-lobes'' but has more of them \cite[Abstract, Sec.~III]{zhou2025sparse}, and optimised non-uniform arrays have no grating lobes in the SD-A domain \cite[Sec.~IV-A]{chen2024nearfield}.
 \end{enumerate}
 
 %=====================================================================
@@ -166,80 +197,66 @@ In a hybrid-field cell-free network, the grating-lobe ``danger zone'' of a user 
 \label{sec:math}
 
 \subsection{Channel model with a sparse AP}
-Keep your NUSW model (eq.~(6) of the papers) and only change the positions:
+Keep the NUSW model of your papers (eq.~(6) of \cite{haider2026vtc}, from \cite{lu2024tutorial}) and change only the positions \eqref{eq:pos}:
 \begin{equation}
   [\h^{\rm NF}_{l,k}]_n=\sqrt{\beta_{l,k}}\,\frac{d_{l,k}}{d_{n,l,k}}\,
   e^{-j\frac{2\pi}{\lambda}d_{n,l,k}},\qquad
-  d_{n,l,k}=\sqrt{d_{l,k}^2+p_n^2-2\,d_{l,k}\,p_n\sin\theta_{l,k}},
+  d_{n,l,k}=\sqrt{d_{l,k}^2+p_n^2-2\,d_{l,k}\,p_n\sin\theta_{l,k}}.
 \end{equation}
-with $p_n$ from (1). The far-field model becomes $\sqrt{\beta_{l,k}}\,\mathbf a(\theta_{l,k})$ with $[\mathbf a(\theta)]_n=e^{j\frac{2\pi}{\lambda}p_n\sin\theta}$.
+The far-field model becomes $\sqrt{\beta_{l,k}}\,\mathbf a(\theta_{l,k})$ with $[\mathbf a(\theta)]_n=e^{j\frac{2\pi}{\lambda}p_n\sin\theta}$ (eqs.~(8)--(9) of \cite{haider2026vtc} with the new $p_n$).
 
-\subsection{Second-order (Fresnel) form and the array gain}
-With $d_{n}\approx r-p_n s+\frac{p_n^2(1-s^2)}{2r}$, $s=\sin\theta$, the unit-norm near-field steering vector is
+\subsection{Fresnel form, surrogate distance and array gain}
+The second-order expansion $d_n\approx r-p_n s+\frac{p_n^2(1-s^2)}{2r}$, $s=\sin\theta$, is eq.~(7) of \cite{haider2026vtc} and the basis of the polar-domain model of \cite{cui2022channel}. Chen \emph{et al.} call
 \begin{equation}
-  [\bb(s,r)]_n\approx\frac{1}{\sqrt N}\exp\!\Big(j\frac{2\pi}{\lambda}p_n s-j\frac{\pi}{\lambda}\frac{p_n^2(1-s^2)}{r}\Big),
+  b=\frac{1-s^2}{2r}
+  \label{eq:surrogate}
 \end{equation}
-and the normalized gain when focusing at $(s_0,r_0)$ and looking at $(s,r)$ is
+the \emph{surrogate distance} \cite[eq.~(6)]{chen2024nearfield}. With it, the unit-norm steering vector is
 \begin{equation}
-  G(s,r)=\Big|\frac1N\sum_{n=1}^N
-  \exp\!\Big(j\frac{2\pi}{\lambda}p_n(s-s_0)
-  -j\frac{\pi}{\lambda}p_n^2\Big[\frac{1-s^2}{r}-\frac{1-s_0^2}{r_0}\Big]\Big)\Big|^2 .
+  [\bb(s,b)]_n\approx\frac{1}{\sqrt N}\exp\!\Big(j\frac{2\pi}{\lambda}\big(p_n s-p_n^2\,b\big)\Big),
+  \label{eq:steer}
+\end{equation}
+and the normalized gain when focusing at $(s_0,b_0)$ and looking at $(s,b)$ is (derived here from \eqref{eq:steer})
+\begin{equation}
+  G(s,b)=\Big|\frac1N\sum_{n=1}^N
+  \exp\!\Big(j\frac{2\pi}{\lambda}\big[p_n(s-s_0)-p_n^2(b-b_0)\big]\Big)\Big|^2 .
   \label{eq:gain}
 \end{equation}
 
-\subsection{Grating lobes in the near field (simple derivation)}
+\subsection{Grating lobes in the near field}
 \label{sec:gl-math}
-For a uniform sparse ULA, $p_n=(n-\frac{N+1}{2})\eta\lambda/2$, so the linear phase in \eqref{eq:gain} is $\pi\eta\,(n-\frac{N+1}{2})(s-s_0)$. It is a multiple of $2\pi$ for every $n$ when
-\begin{equation}
-  s_m=s_0+\frac{2m}{\eta},\qquad m=\pm1,\pm2,\dots,\quad |s_m|\le 1 .
-\end{equation}
-At these angles only the quadratic term in \eqref{eq:gain} remains:
-\begin{equation}
-  \Phi_n=\frac{\pi p_n^2}{\lambda}\Big[\frac{1-s_0^2}{r_0}-\frac{1-s_m^2}{r}\Big].
-\end{equation}
-Two consequences follow, and both are visible in the numerical example of Section~\ref{sec:why}:
+With \eqref{eq:pos}, the linear phase in \eqref{eq:gain} is a multiple of $2\pi$ for every $n$ when $s-s_0=2u/\eta$, which gives \eqref{eq:glangle} \cite[Lemma~5]{zhou2025sparse}. At those angles only the quadratic term remains:
 \begin{enumerate}
-  \item \textbf{At the same range} ($r=r_0$), $\Phi_n=\pi p_n^2(s_m^2-s_0^2)/(\lambda r_0)$. Its largest value, at the array edge $p=D/2$, is
+  \item If $b=b_0$, the quadratic phase vanishes and the gain is 1. In physical coordinates this is \eqref{eq:rprime} \cite[Lemma~6]{zhou2025sparse}. In the $(s,b)$ domain, the focus pattern is therefore exactly periodic with period $2/\eta$ \cite[Sec.~IV-A]{chen2024nearfield}.
+  \item At the same physical range $r=r_0$, $b-b_0=(s_0^2-s_u^2)/(2r_0)$. The largest quadratic phase, at the array edge $p=D/2$, is (derived here)
   \begin{equation}
-    \Phi_{\max}=\frac{\pi R}{8\,r_0}\,\big|s_m^2-s_0^2\big| .
+    \Phi_{\max}=\frac{\pi R}{8\,r_0}\,\big|s_u^2-s_0^2\big|,
   \end{equation}
-  The grating lobe is strongly attenuated when $\Phi_{\max}\gtrsim\pi$, that is when $r_0\lesssim R\,|s_m^2-s_0^2|/8$. Since $R\propto\eta^2$, sparser arrays and closer users give stronger suppression, which matches [5].
-  \item \textbf{At the shifted range} $r'=r_0\,\dfrac{1-s_m^2}{1-s_0^2}$, $\Phi_n=0$ and the grating lobe is at \emph{full} gain (up to higher-order terms). This is an \emph{ambiguity point}: a second user located at $(s_m,r')$ cannot be separated by this AP.
+  so the lobe is strongly attenuated when $r_0\lesssim R|s_u^2-s_0^2|/8$. Since $R\propto\eta^2$, sparser arrays and closer users give more suppression, consistent with \cite[Corollary~3]{chen2025exploring}.
+  \item As $r_0\to\infty$, $b_0\to0$ and $\Phi_{\max}\to0$: no suppression in the far field \cite{chen2025exploring}.
 \end{enumerate}
-For a far-field user ($r\to\infty$) and a far-field focus, $\Phi_n\to0$: the grating lobe is always at full gain.
 
 \subsection{Inter-user correlation and resolvability}
-At AP $l$ define the correlation between users $i$ and $j$:
+At AP $l$ define $\mu_l(i,j)=|\h_{l,i}^{\mathsf H}\h_{l,j}|/(\|\h_{l,i}\|\,\|\h_{l,j}\|)$. Users $i,j$ are unresolvable at AP $l$ when $\mu_l(i,j)\approx1$, for example when one sits at the other's ambiguity point \eqref{eq:rprime}. A network-level measure for a set of APs $\mathcal T$ is (proposed here)
 \begin{equation}
-  \mu_l(i,j)=\frac{|\h_{l,i}^{\mathsf H}\h_{l,j}|}{\|\h_{l,i}\|\,\|\h_{l,j}\|}\in[0,1].
+  \mu_{\rm net}(i,j;\mathcal T)=\min_{l\in\mathcal T}\mu_l(i,j).
 \end{equation}
-Users $i,j$ are \emph{unresolvable at AP $l$} when $\mu_l(i,j)$ is close to one. With a sparse AP this happens (a) when they share the angle and are too close in range (fixed by the larger aperture), or (b) when one sits at the ambiguity point of the other (new, caused by grating lobes). A useful network-level quantity is
-\begin{equation}
-  \mu_{\rm net}(i,j)=\min_{l\in\mathcal T}\mu_l(i,j),
-\end{equation}
-the best separation available over a set of APs $\mathcal T$. For $\mathcal T=\mathcal S_k$ (cluster) versus $\mathcal T=\{1,\dots,L\}$ (all APs), the difference is exactly what cross-AP detection exploits.
-
-\subsection{Effective degrees of freedom}
-For a channel matrix $\mathbf H$ with Gram matrix $\mathbf R=\mathbf H\mathbf H^{\mathsf H}$,
-\begin{equation}
-  \mathrm{EDoF}=\frac{\big(\mathrm{tr}\,\mathbf R\big)^2}{\|\mathbf R\|_F^2},
-\end{equation}
-which equals the number of equally strong eigen-channels. This is the metric used in [5], [8].
+The difference between $\mathcal T=\mathcal S_k$ (cluster) and $\mathcal T=\{1,\dots,L\}$ is what cross-AP detection exploits. For a single uniform sparse array, Chen \emph{et al.} show that the total coverage of the main lobes (including grating lobes) is still no larger than that of a dense half-wavelength ULA with the same number of antennas, so the sparse array has higher spatial resolution despite grating lobes \cite[Property~3]{chen2024nearfield}.
 
 \subsection{Effect on your cross-AP information surplus}
-Your papers define the per-AP post-combining SINR $\gamma_{l,k}$ and the surplus
+Your papers define the per-AP SINR $\gamma_{l,k}$ (eq.~(23) of \cite{haider2026vtc}) and the surplus (eq.~(26) of \cite{haider2026vtc})
 \begin{equation}
-  \Delta_k=\varepsilon^2_{\mathcal S}-\varepsilon^2_{\mathcal A}\approx
+  \Delta_k\approx
   \frac{\sum_{l\notin\mathcal S_k}\gamma_{l,k}}{\big(1+\sum_{l\in\mathcal S_k}\gamma_{l,k}\big)\big(1+\sum_{l=1}^L\gamma_{l,k}\big)} .
 \end{equation}
-With a sparse AP, $\gamma_{l,k}$ collapses at APs where user $k$ sits on an ambiguity point of a strong interferer, and is large elsewhere. If the serving cluster happens to contain such an AP, the cluster estimate is unreliable while the all-AP estimate is not: $\Delta_k$ grows. A Transactions-level result would be a bound on $\mathbb E[\Delta_k]$ as a function of $\eta$.
+With sparse APs, $\gamma_{l,k}$ collapses at APs where user $k$ sits on an ambiguity point of a strong interferer and stays large elsewhere. When such an AP is in the cluster, $\Delta_k$ grows (hypothesis proposed here). A bound on $\mathbb E[\Delta_k]$ as a function of $\eta$ would be a Transactions-level result.
 
 %=====================================================================
 \section{Literature map}
 \label{sec:lit}
 
-\begin{longtable}{@{}p{0.27\linewidth}p{0.36\linewidth}p{0.30\linewidth}@{}}
-\caption{Key works on sparse arrays and near-field cell-free systems.}\\
+\begin{longtable}{@{}p{0.25\linewidth}p{0.42\linewidth}p{0.27\linewidth}@{}}
+\caption{Key works, checked against their full texts unless stated otherwise in Table~\ref{tab:verify}.}\\
 \toprule
 \textbf{Work} & \textbf{What they did} & \textbf{What is missing for you}\\
 \midrule
@@ -248,29 +265,27 @@ With a sparse AP, $\gamma_{l,k}$ collapses at APs where user $k$ sits on an ambi
 \textbf{Work} & \textbf{What they did} & \textbf{What is missing for you}\\
 \midrule
 \endhead
-\multicolumn{3}{@{}l}{\textit{Sparse arrays in near-field communications (single array, single cell)}}\\[2pt]
-Chen, Ren, Pan, Wang, Wang [5] & Beam analysis of sparse arrays in near-field XL-MIMO; closed-form focusing lobe and grating-lobe suppression; EDoF. Grating lobes are naturally suppressed in the near field, more so for larger spacing and shorter distance. & Single array; no cell-free; no detection or estimation.\\
-Chen, Qi, Li, Dobre [6] & Uniform and non-uniform sparse arrays for near-field multi-user; antenna positions optimized for sum rate; channels sparse in a surrogate distance--angle domain, so an OMP estimator is built. & Single array; linear precoding; no SIC or list detection.\\
-Zhou, You, Zhang, Chen, Shi [7] & Beam-pattern analysis of sparse arrays in the near field (grating lobes, $2(U-1)$ strong lobes for a linear sparse array) and hybrid beamforming design. & Downlink, single array.\\
-Wang, Feng, Zeng, Jin, Yuen, Clerckx, Zhang [8] & Sparse MIMO for near- and far-field users: closed-form near-field EDoF increasing with sparsity; interference suppression. & No cell-free, no estimation.\\
-Hussain, Abdallah, Celik, Bj\"ornson, Eltawil [10] & Reconfigurable array thinning for near-field MU-MIMO (PSO), comparable to movable antennas. & Single array.\\
-Li, Min, Zeng, Jin, Dai, Yuan, Zhang [9] & Survey: sparse MIMO for ISAC; co-array with $\mathcal O(M^2)$ virtual elements; grating-lobe suppression, codebooks. & Sensing focus.\\
-{[15], [16]} (authors not verified) & Sparse arrays for near-field sensing and communications; constant-distance focusing with reduced focal shift. & Single array.\\[4pt]
-\multicolumn{3}{@{}l}{\textit{Modular and quasi-distributed arrays (sparse at sub-array level)}}\\[2pt]
-Li, Dong, Zeng, Jin, Zhang [11] & Modular XL-array: better resolution than a collocated array with the same elements, but grating lobes; near-field model suppresses them better than the far-field model. & Single modular array.\\
-{[12]} (authors not verified) & Multi-user modular XL-MIMO: grating lobes degrade SINR; user grouping (scheduling) to avoid them. & No detection design.\\
-Kosasih, Demir, Bj\"ornson [13] & Modular linear arrays: ideal near-field focusing by choosing sub-array sizes; localization by fusing per-ULA estimates; parametric channel estimation. & Not cell-free, but the ``fuse per-sub-array estimates'' idea is close to your cross-AP fusion.\\
-{[14]} (authors not verified) & Grating lobes for quasi-distributed arrays, from ULA to MRA configurations. & Single array.\\[4pt]
-\multicolumn{3}{@{}l}{\textit{Near-field cell-free (no sparse-array focus, except [25])}}\\[2pt]
-Wang \emph{et al.} [21] & Distributed combining for near-field cell-free XL-MIMO (MMSE/L-MMSE, SSOR). & Dense ULAs; linear combining only.\\
-Lei \emph{et al.} [22] & Distributed activity detection in hybrid near-far field cell-free. & Activity detection, not data detection.\\
-Lei, Wang, Xiao, Zhang, Ai [23] & Uplink performance of cell-free XL-MIMO. & Dense arrays.\\
-Mylonopoulos, Interdonato, Buzzi, Liu [24] & Near-field beamfocusing in cell-free networks exploiting LoS from distributed APs. & Downlink focusing.\\
-Xie \emph{et al.} [25] & Beam focusing for near-field cell-free massive MIMO with few antennas per AP; delay-based focusing (OFDM) plus a sparse-array angle-based focusing scheme. & The only near-field cell-free work with sparse arrays found; downlink focusing, no detection, no estimation.\\[4pt]
-\multicolumn{3}{@{}l}{\textit{Foundations you already cite or should cite}}\\[2pt]
-Cui, Dai [1]; Wei, Dai [33] & Polar-domain dictionary and OMP (P-SOMP, P-SIGW); hybrid-field estimation. & Dense arrays; dictionary must be redesigned for sparse spacing.\\
-Lu, Zeng \emph{et al.} [2]; Wang \emph{et al.} [30] & Tutorials on near-field XL-MIMO; sparse and modular arrays covered. & ---\\
-Moffet [18]; Pal, Vaidyanathan [19]; Vaidyanathan, Pal [20] & MRA, nested and co-prime arrays. & Classic array processing.\\
+\multicolumn{3}{@{}l}{\textit{Sparse arrays in near-field communications (single array)}}\\[2pt]
+Chen, Ren, Pan, Wang, Wang \cite{chen2025exploring} & Sparse \emph{UPAs}, Green's-function channel model. Closed-form beam power vs distance and angle, lobe length and grating-lobe suppression ratio: distance focusing and grating-lobe suppression both improve as the focal distance decreases or the spacing increases (Corollaries~1--3). Closed-form EDoF under a parameter constraint. & Single array; no cell-free; no detection or estimation.\\
+Chen, Qi, Li, Dobre \cite{chen2024nearfield} & Uniform and non-uniform sparse arrays for near-field multi-user communication. Larger spacing improves spatial resolution and sum rate (Property~3); SCA-based antenna-position optimisation for non-uniform arrays; channels sparse in the surrogate distance--angle (SD-A) domain, with on-grid SDA-OMP and off-grid SDA-ISRCE estimators. & Single array; precoding and estimation only; no SIC or list detection.\\
+Zhou, You, Zhang, Chen, Shi \cite{zhou2025sparse} & Near-field beam pattern of the LSA: main-lobe width and depth (Propositions~1--2), $2(U-1)$ grating lobes of height 1 (Lemma~5), focused at specific ranges (Lemma~6, Proposition~3). ECA with smaller grating-lobe power but more lobes; hybrid beamforming for both. & Downlink, single array.\\
+Wang, Feng, Zeng, Jin, Yuen, Clerckx, Zhang \cite{wang2024sparsemimo} & Sparse MIMO with the same number of elements: narrower main lobe, larger near-field region; closed-form near-field EDoF increasing with sparsity up to $\min(N_t,N_r)$; multi-user interference suppression in near and far field. & No cell-free, no estimation.\\
+Hussain, Abdallah, Celik, Bj\"ornson, Eltawil \cite{hussain2026thinning} & Reconfigurable array thinning (particle swarm optimisation) for near-field MU-MIMO; performance comparable to movable antennas without moving parts. & Single array.\\
+Li, Min, Zeng, Jin, Dai, Yuan, Zhang \cite{li2024sparseisac} & Survey of sparse MIMO for ISAC: co-arrays, grating-lobe suppression, codebooks. & Sensing focus.\\[4pt]
+\multicolumn{3}{@{}l}{\textit{Modular arrays}}\\[2pt]
+Li, Dong, Zeng, Jin, Zhang \cite{li2023modular} & Modular XL-array: sub-array USW models; better resolution than a collocated array with the same elements but grating lobes; the near-field model suppresses grating lobes better than the far-field UPW model. & Single modular array.\\
+Kosasih, Demir, Bj\"ornson \cite{kosasih2025mla} & Modular linear arrays: beamwidth and beamdepth analysis; ideal focusing by choosing the number of antennas per ULA; localization by fusing per-ULA estimates through least-squares triangulation; parametric channel estimation. & Not cell-free; the per-ULA fusion idea is close to your cross-AP fusion.\\[4pt]
+\multicolumn{3}{@{}l}{\textit{Near-field cell-free}}\\[2pt]
+Wang, Zhang, Xu, Niyato, Ai, Mao, Han \cite{wang2026combining} & Uplink SE framework for near-field cell-free XL-MIMO with \emph{dense planar arrays} (UPAs) and LoS+NLoS channels; centralized and local MMSE combining for \emph{arbitrary} channel estimators; five low-complexity combiners (matrix approximation, SSOR). & Dense arrays; linear combining only; no list/SIC detection.\\
+Lei \emph{et al.} \cite{lei2026activity} & Distributed activity detection in hybrid near-far field cell-free. & Activity detection, not data detection.\\
+Lei, Wang, Xiao, Zhang, Ai \cite{lei2023uplink} & Uplink performance of cell-free XL-MIMO. & Dense arrays.\\
+Mylonopoulos, Interdonato, Buzzi, Liu \cite{mylonopoulos2025los} & Near-field beamfocusing in cell-free networks using LoS from distributed APs. & Downlink focusing.\\
+Xie \emph{et al.} \cite{xie2025beamfocusing} & Beam focusing for near-field cell-free massive MIMO with few antennas per AP; includes a sparse-array angle-based focusing scheme (abstract level). & Downlink focusing; no detection, no estimation.\\[4pt]
+\multicolumn{3}{@{}l}{\textit{Foundations}}\\[2pt]
+Cui, Dai \cite{cui2022channel}; Wei, Dai \cite{wei2022hybrid} & Polar-domain dictionary and OMP; hybrid-field estimation. & Dense arrays.\\
+Bj\"ornson, Demir, Sanguinetti \cite{bjornson2021primer} & Fraunhofer array distance and finite beam depth only below $d_{\rm FA}/10$ (planar array). & ---\\
+Lu, Zeng \emph{et al.} \cite{lu2024tutorial}; Wang \emph{et al.} \cite{wang2024xltutorial} & Tutorials on near-field XL-MIMO. & ---\\
+Moffet \cite{moffet1968mra}; Pal, Vaidyanathan \cite{pal2010nested,vaidyanathan2011coprime} & Minimum-redundancy, nested and co-prime arrays. & Classic array processing.\\
 \bottomrule
 \end{longtable}
 
@@ -278,14 +293,14 @@ Moffet [18]; Pal, Vaidyanathan [19]; Vaidyanathan, Pal [20] & MRA, nested and co
 \section{The gap}
 \label{sec:gap}
 
-Within the limits of this search (see the box on page~1):
+Within the limits of this search:
 \begin{enumerate}
-  \item Sparse arrays in the near field are studied for \textbf{single arrays}: beam patterns, EDoF, precoding, thinning, sensing [5]--[11], [13].
-  \item Near-field \textbf{cell-free} work uses dense arrays and focuses on combining, activity detection, or downlink focusing [21]--[24]. Only [25] uses a sparse array, and only for downlink beam focusing.
-  \item \textbf{No work was found} on \emph{uplink data detection} (SIC, list detection, IDD) or on \emph{channel estimation} for \emph{hybrid-field cell-free} networks with \emph{sparse APs}.
-  \item No work was found that analyses how the per-link near/far-field classification \emph{and} the per-AP grating-lobe ambiguity interact across APs, nor one that uses \emph{multi-AP fusion} to resolve grating-lobe ambiguities.
+  \item Sparse arrays in the near field are studied for \textbf{single arrays}: beam patterns, EDoF, precoding, thinning, estimation and sensing \cite{chen2025exploring,chen2024nearfield,zhou2025sparse,wang2024sparsemimo,hussain2026thinning,li2024sparseisac,li2023modular,kosasih2025mla}.
+  \item Near-field \textbf{cell-free} work uses dense arrays and studies combining, activity detection or downlink focusing \cite{wang2026combining,lei2026activity,lei2023uplink,mylonopoulos2025los}. Only \cite{xie2025beamfocusing} mentions sparse arrays, for downlink beam focusing.
+  \item \textbf{No work was found} on uplink data detection (SIC, list detection, IDD) or channel estimation for \emph{hybrid-field cell-free} networks with \emph{sparse APs}.
+  \item \textbf{No work was found} that uses \emph{multi-AP fusion} to resolve per-AP grating-lobe ambiguities. Kosasih \emph{et al.} fuse sub-array estimates within one modular array \cite{kosasih2025mla}, which is the closest idea.
 \end{enumerate}
-Point 4 is the strongest claim you can make, because it connects directly to the cross-AP idea of your two conference papers.
+Point 4 is the strongest claim, because it connects directly to the cross-AP idea of your papers. ``Not found'' means ``not found by this search''.
 
 %=====================================================================
 \section{Options for bringing sparse arrays into your model}
@@ -296,30 +311,29 @@ Point 4 is the strongest claim you can make, because it connects directly to the
 \textbf{Option} & \textbf{What changes} & \textbf{Pros and cons}\\
 \midrule
 \endhead
-A. Uniform sparse ULA, same $N$ & Spacing $\eta\lambda/2$ at every AP; $R$ grows by $\eta^2$; range resolution improves (Table~\ref{tab:numbers}). & + Easiest; biggest gain in range separation. $-$ Larger AP; hybrid regime may vanish (rule R2); grating lobes.\\
-B. Thinned, same aperture & $N/\eta$ antennas over the same 3.15\,m. & + Same $R$, same hybrid regime; $\eta\times$ fewer antennas, cheaper combiners ($\mathcal O(N^3)\to\mathcal O(N^3/\eta^3)$). $-$ Grating lobes with no resolution gain; lower array gain.\\
-C. Non-uniform (nested, co-prime, MRA) & Positions from [18]--[20]. & + No exact grating lobes; larger co-array helps estimation. $-$ Higher side-lobes; harder analysis.\\
-D. Modular AP & Dense sub-arrays with gaps [11], [13]. & + Practical to build; known theory. $-$ Grating lobes at sub-array level.\\
-E. Heterogeneous APs & Some APs dense, some sparse (or $\eta$ chosen per AP). & + Keeps a true hybrid-field network; lets you study which APs should be sparse. $-$ Larger design space.\\
-F. Network as a sparse array & Treat the $L$ APs as one very sparse distributed array (positions $\mathbf r_l$). & + This is already what cross-AP fusion exploits; gives a clean theory story. $-$ Needs care with synchronisation assumptions.\\
+A. Uniform sparse ULA, same $N$ & Spacing $\eta\lambda/2$ at every AP; $R\propto\eta^2$; better range resolution (Table~\ref{tab:numbers}) \cite{zhou2025sparse,wang2024sparsemimo}. & + Biggest gain in separation. $-$ Larger AP; hybrid regime may vanish (R2); grating lobes.\\
+B. Thinned, same aperture & About $N/\eta$ active antennas over the same aperture \cite{hussain2026thinning}. & + Same $R$ and hybrid regime; cheaper local combiners (an $N\times N$ inverse costs $\mathcal O(N^3)$, computed here). $-$ Grating lobes with no resolution gain; lower array gain.\\
+C. Non-uniform (ECA, optimised, nested, co-prime) & Positions from \cite{zhou2025sparse,chen2024nearfield,pal2010nested,vaidyanathan2011coprime,moffet1968mra}. & + Lower grating-lobe peaks \cite{zhou2025sparse,chen2024nearfield}. $-$ Harder analysis.\\
+D. Modular AP & Dense sub-arrays with gaps \cite{li2023modular,kosasih2025mla}. & + Practical, known theory. $-$ Grating lobes at sub-array level.\\
+E. Heterogeneous APs & Some APs dense, some sparse. & + Keeps a hybrid-field network. $-$ Larger design space.\\
+F. Network as a sparse array & Treat the $L$ APs as one distributed array. & + What cross-AP fusion already exploits. $-$ Synchronisation assumptions.\\
 \bottomrule
 \end{longtable}
 
 \begin{keybox}{Recommendation}
-Use \textbf{Option A} as the main study ($\eta\in\{1,2,4\}$, same $N$), and \textbf{Option B} as the fairness check (same aperture). Add \textbf{Option E} for a short ``design insight'' figure if space allows. Option C is a good follow-up paper.
+Use \textbf{Option A} as the main study ($\eta\in\{1,2,4\}$, same $N$) and \textbf{Option B} as the fairness check (same aperture). Add \textbf{Option E} for a design-insight figure if space allows; Option C is a good follow-up.
 \end{keybox}
 
 %=====================================================================
-\section{Grating-lobe-aware channel estimation (connects to your VTC paper)}
+\section{Channel estimation with sparse APs (connects to your VTC paper)}
 \label{sec:est}
 
-Your VTC estimator (polar-domain OMP) must change in three ways for a sparse AP:
+Three points, the second one corrected in this version:
 \begin{enumerate}
-  \item \textbf{Finer angular grid.} Beams are $\eta$ times narrower, so use about $\eta\cdot o\cdot N$ angle samples ($o$ = oversampling).
-  \item \textbf{Alias testing.} Atoms at $s$ and $s\pm 2/\eta$ share the same linear phase and differ only through the curvature term. After OMP picks an atom $(s,r)$, also refine the alias candidates $(s\pm 2m/\eta,\, r')$ and keep the best fit. (The current authentic estimator in your MATLAB code already does a simple version of this at end-fire, where $s=-1$ and $s=+1$ are the same direction for $\eta=1$.)
-  \item \textbf{Cross-AP consistency (new, cell-free specific).} A user has \emph{one} position $\mathbf u_k$, and it determines $(\theta_{l,k},d_{l,k})$ at every AP. Instead of estimating a polar atom per AP independently, estimate $\mathbf u_k$ jointly from all near-field APs: an alias that fits AP $l$ will not be consistent with the position seen by AP $l'$. This is a \emph{location-domain dictionary}, related to the per-sub-array fusion of [13], and it is new for cell-free networks.
+  \item \textbf{Finer angular grid.} Use about $\eta$ times more angle samples, because the main lobe is $\eta$ times narrower \cite[Proposition~1]{zhou2025sparse}. Sample the range in the surrogate distance \eqref{eq:surrogate} \cite{chen2024nearfield} or in $1/r$ per angle \cite{cui2022channel}.
+  \item \textbf{Periodicity: harmless for the channel vector, harmful for parameters.} For one uniform sparse AP, $\bb(s,b)$ and $\bb(s+2/\eta,b)$ are nearly identical \eqref{eq:steer}. Chen \emph{et al.} therefore sample the angle over a single period $[-1/p,1/p]$ \cite[eq.~(47)]{chen2024nearfield}: the estimated \emph{channel vector} is correct even if the angle is aliased. The aliasing only matters when the estimated angle and range are \emph{used}, for example for localization, to combine information across APs, or in a clustering rule based on geometry. (The authentic estimator in your MATLAB code resolves a related end-fire alias for $\eta=1$, where $s=-1$ and $s=+1$ coincide.)
+  \item \textbf{Cross-AP location-domain refinement (proposed here).} A user has one position $\mathbf u_k$, which fixes $(\theta_{l,k},d_{l,k})$ at every AP. Estimating $\mathbf u_k$ jointly from all near-field APs removes the per-AP aliases, because an alias consistent with AP $l$ is not consistent with AP $l'$. This extends to cell-free the per-sub-array fusion by least-squares triangulation of \cite{kosasih2025mla}. Off-grid refinement can follow \cite{chen2024nearfield,cui2022channel}.
 \end{enumerate}
-A clean analytical result to aim for: the coherence of the polar dictionary as a function of $\eta$, and the NMSE gain of the location-domain estimator over per-AP OMP.
 
 %=====================================================================
 \section{A plan for the Transactions paper}
@@ -329,75 +343,79 @@ A clean analytical result to aim for: the coherence of the polar dictionary as a
 
 \paragraph{Contributions (draft).}
 \begin{enumerate}[label=\textbf{C\arabic*.}]
-  \item Hybrid-field cell-free model with sparse APs; closed-form fraction of near-field links and of finite-depth links as a function of $\eta$ and the area.
-  \item Near-field grating-lobe analysis for cell-free: ambiguity points per AP, and the probability that a user pair is unresolvable at one AP, in a cluster, and at all APs.
-  \item Grating-lobe-aware estimation: aliased polar dictionary plus cross-AP location-domain refinement; NMSE analysis.
-  \item Cross-AP list SIC and IDD (from ICASSP and VTC), with the information surplus $\Delta_k$ analysed as a function of $\eta$.
-  \item Clustering that accounts for grating-lobe interference (see the separate clustering document).
+  \item Hybrid-field cell-free model with sparse APs; fraction of near-field links \eqref{eq:rayleigh} and of focusing links \eqref{eq:rth} vs.\ $\eta$ and area.
+  \item Grating-lobe analysis for cell-free: per-AP ambiguity points \eqref{eq:rprime} \cite{zhou2025sparse}, and the probability that a pair is unresolvable at one AP, in a cluster and at all APs.
+  \item Location-domain cross-AP estimation (Section~\ref{sec:est}), with NMSE analysis.
+  \item Cross-AP list SIC and IDD \cite{haider2026icassp,haider2026vtc}, with $\Delta_k$ analysed vs.\ $\eta$.
+  \item Clustering that accounts for grating-lobe interference (separate clustering document).
 \end{enumerate}
 
 \paragraph{Figures to plan.}
+(1) fraction of near-field and focusing links vs.\ $\eta$;
+(2) one AP's beam pattern for $\eta=1,2,4$ (main lobe, grating lobe at the same range, ambiguity point);
+(3) NMSE vs.\ SNR: per-AP OMP, location-domain estimator;
+(4) BER vs.\ SNR for the four detectors, $\eta=1,2,4$, perfect and estimated CSI;
+(5) same-$N$ vs.\ same-aperture;
+(6) CDF of $\Delta_k$ vs.\ $\eta$, gate firing rate and fronthaul;
+(7) IDD BER at iteration 3.
+
+\paragraph{Code changes in your MATLAB script.}
 \begin{enumerate}
-  \item Fraction of near-field and finite-depth links vs.\ $\eta$ (analysis and simulation).
-  \item Beam pattern of one AP, $\eta=1,2,4$: main lobe, grating lobe at the same range, ambiguity point.
-  \item NMSE vs.\ SNR: per-AP OMP, aliased OMP, location-domain estimator; $\eta=1,2,4$.
-  \item BER vs.\ SNR for the four detectors, $\eta=1,2,4$, perfect and estimated CSI (extension of VTC Fig.~1).
-  \item Same-$N$ vs.\ same-aperture comparison (Options A and B).
-  \item $\Delta_k$ distribution (CDF) vs.\ $\eta$; gate firing rate and fronthaul vs.\ SNR.
-  \item IDD BER at iteration 3, $\eta=1,2,4$.
+  \item Add \texttt{eta}; set \texttt{d\_ant = eta*lambda/2} and \texttt{d\_H = eta/2}. Keep $N$ (Option A) or set \texttt{N = round((N0-1)/eta)+1} (Option B).
+  \item \texttt{d\_Ray} and the near-field mask then update automatically; print the near-field fraction and the fraction with $r<r_{\rm th}$.
+  \item Build the polar dictionary with \texttt{pd\_os\_ang} scaled by \texttt{eta}. One angular period is enough for the channel vector \cite{chen2024nearfield}; if the estimated angle is used elsewhere, add the alias candidates $s\pm2m/\eta$ to the refinement starts.
+  \item Apply the same spacing to the centralized-BS benchmark, or state that it stays dense.
+  \item Keep \texttt{genie\_csi = false} so that every estimated-CSI result is authentic.
 \end{enumerate}
 
-\paragraph{Code changes in your MATLAB script (step by step).}
-\begin{enumerate}
-  \item Add \texttt{eta} near the top; set \texttt{d\_ant = eta*lambda/2} and \texttt{d\_H = eta/2} (the far-field correlation uses spacing in wavelengths). Keep $N$ (Option A) or set \texttt{N = round((N0-1)/eta)+1} (Option B).
-  \item $D_{\rm AP}$, \texttt{d\_Ray} and the near-field mask then update automatically; print the near-field fraction.
-  \item Build the polar dictionary with \texttt{pd\_os\_ang} scaled by \texttt{eta}; add alias candidates $s\pm 2m/\eta$ to the refinement starts in \texttt{pdomp\_estimate}; change the wrap period in \texttt{refine\_param} accordingly.
-  \item Apply the same spacing to the centralized-BS benchmark, or state clearly that it stays dense.
-  \item Keep \texttt{genie\_csi = false}, so that every estimated-CSI result is authentic.
-\end{enumerate}
+\paragraph{Risks.} With $\eta\ge2$ in $300\times300$\,m$^2$ nearly all links are near-field; a larger aperture raises spatial non-stationarity, which your model ignores; sparse arrays help range separation only for links inside $r_{\rm th}$.
 
-\paragraph{Risks and honest notes.}
-\begin{itemize}
-  \item With $\eta\ge2$ in a $300\times300$\,m$^2$ area nearly all links are near-field, so ``hybrid-field'' must be argued with a larger area or with mixed APs.
-  \item A larger aperture also increases spatial non-stationarity (visibility regions); your model assumes every element sees the user, so state it.
-  \item Sparse arrays help range separation only for users inside $R/\alpha$; report the fraction of such users.
-\end{itemize}
+%=====================================================================
+\section*{Verification status of the references}
+\addcontentsline{toc}{section}{Verification status of the references}
+\begin{table}[h]
+\centering
+\caption{What was checked for each reference.}
+\label{tab:verify}
+\begin{tabular}{@{}p{0.55\linewidth}p{0.38\linewidth}@{}}
+\toprule
+\textbf{References} & \textbf{Checked against}\\
+\midrule
+\cite{bjornson2021primer,chen2025exploring,chen2024nearfield,zhou2025sparse,wang2024sparsemimo,hussain2026thinning,li2023modular,kosasih2025mla,wang2026combining} & Full text (statements and equation numbers).\\
+\cite{haider2026icassp,haider2026vtc} & Your submitted papers.\\
+\cite{cui2022channel,lu2024tutorial,haider2026wcl} & As cited in your papers.\\
+\cite{li2024sparseisac,lei2026activity,lei2023uplink,mylonopoulos2025los,xie2025beamfocusing,wei2022hybrid,wang2024xltutorial,stutz2026boundaries,moffet1968mra,pal2010nested,vaidyanathan2011coprime} & Title, authors and abstract only (web search). Read before citing specific results.\\
+\bottomrule
+\end{tabular}
+\end{table}
 
 %=====================================================================
 \begin{thebibliography}{99}\small
-\bibitem{cui} M.~Cui and L.~Dai, ``Channel estimation for extremely large-scale MIMO: Far-field or near-field?'' \emph{IEEE Trans.\ Commun.}, vol.~70, no.~4, pp.~2663--2677, 2022.
-\bibitem{lu} H.~Lu, Y.~Zeng, C.~You, Y.~Han, J.~Zhang, Z.~Wang, Z.~Dong, S.~Jin, C.-X.~Wang, T.~Jiang \emph{et al.}, ``A tutorial on near-field XL-MIMO communications toward 6G,'' \emph{IEEE Commun.\ Surveys Tuts.}, vol.~26, no.~4, pp.~2213--2257, 2024.
-\bibitem{primer} E.~Bj\"ornson, \"O.~T.~Demir, and L.~Sanguinetti, ``A primer on near-field beamforming for arrays and reconfigurable intelligent surfaces,'' in \emph{Proc.\ Asilomar Conf.}, 2021; arXiv:2110.06661.
-\bibitem{chapter} ``Near-field beamforming and multiplexing using extremely large aperture arrays,'' book chapter, arXiv:2209.03082, 2022 (authors not verified).
-\bibitem{chenren} X.~Chen, H.~Ren, C.~Pan, C.-X.~Wang, and J.~Wang, ``Exploring the advantages of sparse arrays in near-field XL-MIMO systems: Beam analysis and EDoF function,'' arXiv:2501.09234, 2025.
-\bibitem{chenqi} K.~Chen, C.~Qi, G.~Y.~Li, and O.~A.~Dobre, ``Near-field multiuser communications based on sparse arrays,'' \emph{IEEE J.\ Sel.\ Topics Signal Process.}, vol.~18, no.~4, 2024; arXiv:2406.09238.
-\bibitem{zhou} C.~Zhou, C.~You, H.~Zhang, L.~Chen, and S.~Shi, ``Sparse array enabled near-field communications: Beam pattern analysis and hybrid beamforming design,'' \emph{IEEE Trans.\ Wireless Commun.}, 2025, doi:10.1109/TWC.2025.3578561; arXiv:2401.05690.
-\bibitem{wangfeng} H.~Wang, C.~Feng, Y.~Zeng, S.~Jin, C.~Yuen, B.~Clerckx, and R.~Zhang, ``Enhancing spatial multiplexing and interference suppression for near- and far-field communications with sparse MIMO,'' arXiv:2408.01956, 2024.
-\bibitem{lisparse} X.~Li, H.~Min, Y.~Zeng, S.~Jin, L.~Dai, Y.~Yuan, and R.~Zhang, ``Sparse MIMO for ISAC: New opportunities and challenges,'' arXiv:2406.12270, 2024.
-\bibitem{hussain} A.~Hussain, A.~Abdallah, A.~Celik, E.~Bj\"ornson, and A.~M.~Eltawil, ``Sparse array design for near-field MU-MIMO: Reconfigurable array thinning approach,'' arXiv:2602.21973, 2026 (reported as accepted in IEEE Wireless Commun.\ Lett.).
-\bibitem{limod} X.~Li, Z.~Dong, Y.~Zeng, S.~Jin, and R.~Zhang, ``Near-field beam focusing pattern and grating lobe characterization for modular XL-array,'' arXiv:2305.05408, 2023.
-\bibitem{mumod} ``Multi-user modular XL-MIMO communications: Near-field beam focusing pattern and user grouping,'' arXiv:2308.11289, 2023 (authors not verified).
-\bibitem{kosasih} A.~Kosasih, \"O.~T.~Demir, and E.~Bj\"ornson, ``Near-field beamfocusing, localization, and channel estimation with modular linear arrays,'' arXiv:2505.07991, 2025.
-\bibitem{quasi} ``Near-field communications with grating lobes for quasi-distributed arrays: From ULA to MRA,'' arXiv:2607.29341, 2026 (authors not verified).
-\bibitem{enh} ``Enhancing near-field sensing and communications with sparse arrays: Potentials, challenges, and emerging trends,'' arXiv:2309.08681, 2023 (authors not verified).
-\bibitem{const} ``Sparse arrays enable near-field constant-distance focusing with reduced focal shift,'' arXiv:2505.07285, 2025 (authors not verified).
-\bibitem{coprimeloc} ``Near-field localization with coprime array,'' arXiv:2411.01529, 2024 (authors not verified).
-\bibitem{moffet} A.~T.~Moffet, ``Minimum-redundancy linear arrays,'' \emph{IEEE Trans.\ Antennas Propag.}, vol.~16, no.~2, pp.~172--175, 1968.
-\bibitem{nested} P.~Pal and P.~P.~Vaidyanathan, ``Nested arrays: A novel approach to array processing with enhanced degrees of freedom,'' \emph{IEEE Trans.\ Signal Process.}, vol.~58, no.~8, pp.~4167--4181, 2010.
-\bibitem{coprime} P.~P.~Vaidyanathan and P.~Pal, ``Sparse sensing with co-prime samplers and arrays,'' \emph{IEEE Trans.\ Signal Process.}, vol.~59, no.~2, pp.~573--586, 2011.
-\bibitem{wangcomb} Z.~Wang, J.~Zhang, B.~Xu, D.~Niyato, B.~Ai, S.~Mao, and Z.~Han, ``Low-complexity distributed combining design for near-field cell-free XL-MIMO systems,'' \emph{IEEE Trans.\ Wireless Commun.}, vol.~25, pp.~11799--11815, 2026; arXiv:2602.03581.
-\bibitem{lei} J.~Lei, Y.~Li, Z.~Wang, Q.~Lin, Y.-F.~Liu, and Y.-C.~Wu, ``A unified distributed algorithm for hybrid near-far field activity detection in cell-free massive MIMO,'' \emph{IEEE Trans.\ Wireless Commun.}, 2026; arXiv:2509.15162.
-\bibitem{leiul} H.~Lei, Z.~Wang, H.~Xiao, J.~Zhang, and B.~Ai, ``Uplink performance of cell-free extremely large-scale MIMO systems,'' arXiv:2301.12086, 2023.
-\bibitem{mylo} G.~Mylonopoulos, G.~Interdonato, S.~Buzzi, and P.~Liu, ``Leveraging line-of-sight propagation for near-field beamfocusing in cell-free networks,'' arXiv:2503.21599, 2025.
-\bibitem{xie} M.~Xie \emph{et al.}, ``Beam focusing for near-field cell-free massive MIMO,'' \emph{IEEE Wireless Commun.\ Lett.}, 2025, doi:10.1109/LWC.2025.3574325 (full author list not verified).
-\bibitem{bjsc} E.~Bj\"ornson and L.~Sanguinetti, ``Scalable cell-free massive MIMO systems,'' \emph{IEEE Trans.\ Commun.}, vol.~68, no.~7, pp.~4247--4261, 2020.
-\bibitem{found} \"O.~T.~Demir, E.~Bj\"ornson, and L.~Sanguinetti, ``Foundations of user-centric cell-free massive MIMO,'' \emph{Found.\ Trends Signal Process.}, vol.~14, no.~3--4, pp.~162--472, 2021.
-\bibitem{ngo} H.~Q.~Ngo, A.~Ashikhmin, H.~Yang, E.~G.~Larsson, and T.~L.~Marzetta, ``Cell-free massive MIMO versus small cells,'' \emph{IEEE Trans.\ Wireless Commun.}, vol.~16, no.~3, pp.~1834--1850, 2017.
-\bibitem{haider} N.~Haider and R.~C.~de~Lamare, ``Iterative interference cancellation for mixed near- and far-field XL-MIMO systems,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~15, pp.~5323--5327, 2026.
-\bibitem{wangtut} Z.~Wang, J.~Zhang, H.~Du, D.~Niyato, S.~Cui, B.~Ai, M.~Debbah, K.~B.~Letaief, and H.~V.~Poor, ``A tutorial on extremely large-scale MIMO for 6G: Fundamentals, signal processing, and applications,'' \emph{IEEE Commun.\ Surveys Tuts.}, 2024.
-\bibitem{stutz} A.~Stutz-Tirri, A.~Dkhan, H.~Sarieddeen, and C.~Studer, ``On near-far-field boundaries in wireless systems,'' arXiv:2605.02424, 2026.
-\bibitem{zhu} L.~Zhu, W.~Ma, and R.~Zhang, ``Movable antennas for wireless communication: Opportunities and challenges,'' \emph{IEEE Commun.\ Mag.}, vol.~62, no.~6, pp.~114--120, 2024.
-\bibitem{wei} X.~Wei and L.~Dai, ``Channel estimation for extremely large-scale massive MIMO: Far-field, near-field, or hybrid-field?'' \emph{IEEE Commun.\ Lett.}, vol.~26, no.~1, pp.~177--181, 2022.
+\bibitem{haider2026icassp} N.~Haider and R.~C.~de~Lamare, ``Cross-AP list-based interference cancellation for near-field cell-free XL-MIMO systems,'' submitted to IEEE ICASSP, 2026.
+\bibitem{haider2026vtc} N.~Haider and R.~C.~de~Lamare, ``Cross-AP channel estimation and interference cancellation for near-field cell-free XL-MIMO systems,'' submitted to IEEE VTC, 2026.
+\bibitem{cui2022channel} M.~Cui and L.~Dai, ``Channel estimation for extremely large-scale MIMO: Far-field or near-field?'' \emph{IEEE Trans.\ Commun.}, vol.~70, no.~4, pp.~2663--2677, 2022.
+\bibitem{lu2024tutorial} H.~Lu, Y.~Zeng, C.~You, Y.~Han, J.~Zhang, Z.~Wang, Z.~Dong, S.~Jin, C.-X.~Wang, T.~Jiang \emph{et al.}, ``A tutorial on near-field XL-MIMO communications toward 6G,'' \emph{IEEE Commun.\ Surveys Tuts.}, vol.~26, no.~4, pp.~2213--2257, 2024.
+\bibitem{bjornson2021primer} E.~Bj\"ornson, \"O.~T.~Demir, and L.~Sanguinetti, ``A primer on near-field beamforming for arrays and reconfigurable intelligent surfaces,'' in \emph{Proc.\ Asilomar Conf.\ Signals, Syst., Comput.}, 2021; arXiv:2110.06661v2.
+\bibitem{chen2025exploring} X.~Chen, H.~Ren, C.~Pan, C.-X.~Wang, and J.~Wang, ``Exploring the advantages of sparse arrays in near-field XL-MIMO systems: Beam analysis and EDoF function,'' arXiv:2501.09234v4, Oct.\ 2025.
+\bibitem{chen2024nearfield} K.~Chen, C.~Qi, G.~Y.~Li, and O.~A.~Dobre, ``Near-field multiuser communications based on sparse arrays,'' \emph{IEEE J.\ Sel.\ Topics Signal Process.}, accepted, 2024; arXiv:2406.09238v1.
+\bibitem{zhou2025sparse} C.~Zhou, C.~You, H.~Zhang, L.~Chen, and S.~Shi, ``Sparse array enabled near-field communications: Beam pattern analysis and hybrid beamforming design,'' \emph{IEEE Trans.\ Wireless Commun.}, 2025, doi:10.1109/TWC.2025.3578561; arXiv:2401.05690v1.
+\bibitem{wang2024sparsemimo} H.~Wang, C.~Feng, Y.~Zeng, S.~Jin, C.~Yuen, B.~Clerckx, and R.~Zhang, ``Enhancing spatial multiplexing and interference suppression for near- and far-field communications with sparse MIMO,'' arXiv:2408.01956v1, Aug.\ 2024 (part presented at IEEE GLOBECOM Workshops, 2023).
+\bibitem{li2024sparseisac} X.~Li, H.~Min, Y.~Zeng, S.~Jin, L.~Dai, Y.~Yuan, and R.~Zhang, ``Sparse MIMO for ISAC: New opportunities and challenges,'' arXiv:2406.12270, 2024.
+\bibitem{hussain2026thinning} A.~Hussain, A.~Abdallah, A.~Celik, E.~Bj\"ornson, and A.~M.~Eltawil, ``Sparse array design for near-field MU-MIMO: Reconfigurable array thinning approach,'' arXiv:2602.21973v1, Feb.\ 2026.
+\bibitem{li2023modular} X.~Li, Z.~Dong, Y.~Zeng, S.~Jin, and R.~Zhang, ``Near-field beam focusing pattern and grating lobe characterization for modular XL-array,'' arXiv:2305.05408v1, May 2023.
+\bibitem{kosasih2025mla} A.~Kosasih, \"O.~T.~Demir, and E.~Bj\"ornson, ``Near-field beamfocusing, localization, and channel estimation with modular linear arrays,'' arXiv:2505.07991v2, Dec.\ 2025 (parts presented at Asilomar 2024).
+\bibitem{wang2026combining} Z.~Wang, J.~Zhang, B.~Xu, D.~Niyato, B.~Ai, S.~Mao, and Z.~Han, ``Low-complexity distributed combining design for near-field cell-free XL-MIMO systems,'' \emph{IEEE Trans.\ Wireless Commun.}, vol.~25, pp.~11799--11815, 2026; arXiv:2602.03581v1.
+\bibitem{lei2026activity} J.~Lei, Y.~Li, Z.~Wang, Q.~Lin, Y.-F.~Liu, and Y.-C.~Wu, ``A unified distributed algorithm for hybrid near-far field activity detection in cell-free massive MIMO,'' \emph{IEEE Trans.\ Wireless Commun.}, 2026; arXiv:2509.15162.
+\bibitem{lei2023uplink} H.~Lei, Z.~Wang, H.~Xiao, J.~Zhang, and B.~Ai, ``Uplink performance of cell-free extremely large-scale MIMO systems,'' arXiv:2301.12086, 2023.
+\bibitem{mylonopoulos2025los} G.~Mylonopoulos, G.~Interdonato, S.~Buzzi, and P.~Liu, ``Leveraging line-of-sight propagation for near-field beamfocusing in cell-free networks,'' arXiv:2503.21599, 2025.
+\bibitem{xie2025beamfocusing} M.~Xie \emph{et al.}, ``Beam focusing for near-field cell-free massive MIMO,'' \emph{IEEE Wireless Commun.\ Lett.}, 2025, doi:10.1109/LWC.2025.3574325.
+\bibitem{wei2022hybrid} X.~Wei and L.~Dai, ``Channel estimation for extremely large-scale massive MIMO: Far-field, near-field, or hybrid-field?'' \emph{IEEE Commun.\ Lett.}, vol.~26, no.~1, pp.~177--181, 2022.
+\bibitem{wang2024xltutorial} Z.~Wang, J.~Zhang, H.~Du, D.~Niyato, S.~Cui, B.~Ai, M.~Debbah, K.~B.~Letaief, and H.~V.~Poor, ``A tutorial on extremely large-scale MIMO for 6G: Fundamentals, signal processing, and applications,'' \emph{IEEE Commun.\ Surveys Tuts.}, 2024.
+\bibitem{stutz2026boundaries} A.~Stutz-Tirri, A.~Dkhan, H.~Sarieddeen, and C.~Studer, ``On near-far-field boundaries in wireless systems,'' arXiv:2605.02424, 2026.
+\bibitem{moffet1968mra} A.~T.~Moffet, ``Minimum-redundancy linear arrays,'' \emph{IEEE Trans.\ Antennas Propag.}, vol.~16, no.~2, pp.~172--175, 1968.
+\bibitem{pal2010nested} P.~Pal and P.~P.~Vaidyanathan, ``Nested arrays: A novel approach to array processing with enhanced degrees of freedom,'' \emph{IEEE Trans.\ Signal Process.}, vol.~58, no.~8, pp.~4167--4181, 2010.
+\bibitem{vaidyanathan2011coprime} P.~P.~Vaidyanathan and P.~Pal, ``Sparse sensing with co-prime samplers and arrays,'' \emph{IEEE Trans.\ Signal Process.}, vol.~59, no.~2, pp.~573--586, 2011.
+\bibitem{haider2026wcl} N.~Haider and R.~C.~de~Lamare, ``Iterative interference cancellation for mixed near- and far-field XL-MIMO systems,'' \emph{IEEE Wireless Commun.\ Lett.}, vol.~15, pp.~5323--5327, 2026.
 \end{thebibliography}
 
 \end{document}
