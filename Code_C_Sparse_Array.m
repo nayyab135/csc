@@ -33,7 +33,8 @@ clc;
 %      their refocusing distance (Zhou Lemmas 5-6), beam depth, NF and
 %      focusing fractions vs area, co-angular correlation vs range, and
 %      ambiguity maps (single AP vs network).
-%   New figures are named SPA-1 ... SPA-14; the old figures are unchanged in
+%   New figures are named SPA-1 ... SPA-14 (SPA-14 is a neutral sparse-vs-
+%   dense summary: whether sparse wins depends on the regime, see its comment); the old figures are unchanged in
 %   meaning and now use the selected array.
 %
 %  Two corrections relative to the base code (both switchable):
@@ -2880,8 +2881,14 @@ if arr_study
         legend('Location', 'southwest');
     end
 
-    % ---------------- SPA-14: why sparse beats dense (summary at the reference SNR) ----------------
-    figure('Name', 'SPA-14 Why sparse beats dense summary', 'Position', [40 40 1300 640]);
+    % ---------------- SPA-14: sparse vs dense summary at the reference SNR ----------------
+%  Neutral on purpose: in a preliminary run (4 setups, 300 m, K = 8, L = 8) the
+%  sparse arrays won the single-AP geometry metrics (collinear pairs unresolvable
+%  at the home AP: ECA 0.25 vs dense ULA 0.75; focusing-capable links 21% vs
+%  0.4%) but NOT the detection BER: the serving clusters already resolved every
+%  pair through macro-diversity, and the sparse arrays paid an estimation-NMSE
+%  penalty. Read this figure, do not assume its sign.
+    figure('Name', 'SPA-14 Sparse vs dense summary', 'Position', [40 40 1300 640]);
     sumv = {100 * mean(A_nf, 2), 100 * mean(A_foc, 2), reshape(m_pu(2, 1, :), [], 1), ...
             m_amb(1, :).', m_nmse(:, si0), squeeze(m_be(4, :, si0)).'};
     sumt = {'NF links [%]', 'Focusing-capable links [%]', 'P(unresolvable) in cluster', ...
