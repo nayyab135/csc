@@ -2625,7 +2625,18 @@ if d_study
     end
 
     % ---------------- PROP-3: localisation error of the fused position ----------------
-    mLOC = median(D_locm, 4);                     % median over setups of the per-setup median error
+    mLOC = nan(nScen, nSch, nSNR);                % median over setups of the per-setup median error
+    for c = 1:nScen                               % (setups without any NF link give NaN and are skipped)
+        for sc = 1:nSch
+            for si = 1:nSNR
+                v = D_locm(c, sc, si, :);
+                v = v(isfinite(v));
+                if ~isempty(v)
+                    mLOC(c, sc, si) = median(v);
+                end
+            end
+        end
+    end
     figure('Name', 'PROP-3 Localisation error of CAPE', 'Position', [30 30 1300 800]);
     for c = 1:nScen
         subplot(2, nScen, c); hold on; box on; grid on;
@@ -4204,6 +4215,9 @@ function [Hhat, C, xhat, nfus] = csi_acquire_cape(H, R, NFm, beta, tau, p, N, L,
                     cand = [cand; cand_positions(FG.AP(l), sLoc(l, j), qLoc(l, j), FG.sL, FG.hD)];  %#ok<AGROW>
                 end
             end
+            if isempty(cand)                       % defensive: start next to the strongest AP
+                cand = FG.AP(candAP(1)) + 1;
+            end
             % ---- 2. fused likelihood, best candidate, 2-D pattern search ----
             Zf = reshape(Z(:, m, fusAP), [N, numel(fusAP)]);
             sc = fused_score(cand, Zf, fusAP, FG, PD);
@@ -4279,7 +4293,9 @@ end
 function X = cand_positions(APl, s, q, sL, hD)
 % Positions consistent with an AP-local (s, q) estimate: the two mirror
 % solutions phi and pi - phi; for a far-field atom (q ~ 0) the range is
-% unknown and the ray is sampled.
+% unknown and the ray is sampled. A range below the AP height (possible for
+% noisy lobes, q > 1/hD) is clamped to just outside it, so the list is
+% never empty.
     if q > 1 / 400
         rr = 1 / q;
     else
@@ -4287,9 +4303,7 @@ function X = cand_positions(APl, s, q, sL, hD)
     end
     X = [];
     for d3 = rr
-        if d3 <= hD
-            continue;
-        end
+        d3 = max(d3, hD + 0.5);               % a lobe closer than the AP height: user (almost) below the AP
         dH = sqrt(d3 ^ 2 - hD ^ 2);
         sp = max(min(s * d3 / dH, 1), -1);
         p1 = asin(sp);
