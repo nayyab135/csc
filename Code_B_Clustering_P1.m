@@ -1141,8 +1141,8 @@ parfor ns = 1:nSetups
             % channels (used only to score kappa_k and Delta_k, never to cluster)
             gEval = per_ap_sinr_eval(Hcl_e, Hcs, p, N, L, K, nReal);
             Cs0b = zeros(size(Ccl_e));
-            for r = 1:nRule
-                D = Dr{r};
+            for ru = 1:nRule   % [CODE B] loop counter "ru": the base code assigns "r" in the user drop, and MATLAB forbids reusing it as a for-loop variable inside parfor
+                D = Dr{ru};
                 sz  = sum(D, 1);                                  % 1 x K cluster sizes
                 ldl = sum(D, 2);                                  % L x 1 users per AP
                 [kap, del] = surplus_metrics(gEval, D);
@@ -1160,28 +1160,28 @@ parfor ns = 1:nSetups
                 berUe = bE / max(bpu, 1);                         % 4 x K per-user BER
                 berUp = bP / max(bpu, 1);
                 rho = etaR / max(nReal, 1);
-                cBERe(:, r, ns, si) = mean(berUe, 2);
-                cBERp(:, r, ns, si) = mean(berUp, 2);
-                cEta(r, ns, si)     = rho;
-                cSizeU(r, :, ns, si) = sz;
-                cKap(r, :, ns, si)  = kap;
-                cDel(r, :, ns, si)  = del;
-                cSEu(r, :, ns, si)  = prelog * log2(modOrder) * (1 - berUe(4, :));
-                cSEup(r, :, ns, si) = prelog * log2(modOrder) * (1 - berUp(4, :));
-                cLoad(r, ns, si)    = max(ldl) / max(mean(ldl), eps);
-                cTime(r, ns, si)    = tRule(r);
+                cBERe(:, ru, ns, si) = mean(berUe, 2);
+                cBERp(:, ru, ns, si) = mean(berUp, 2);
+                cEta(ru, ns, si)     = rho;
+                cSizeU(ru, :, ns, si) = sz;
+                cKap(ru, :, ns, si)  = kap;
+                cDel(ru, :, ns, si)  = del;
+                cSEu(ru, :, ns, si)  = prelog * log2(modOrder) * (1 - berUe(4, :));
+                cSEup(ru, :, ns, si) = prelog * log2(modOrder) * (1 - berUp(4, :));
+                cLoad(ru, ns, si)    = max(ldl) / max(mean(ldl), eps);
+                cTime(ru, ns, si)    = tRule(ru);
                 % complexity model: local MMSE per AP (inverse + one column per
                 % served user), LSFD over the cluster, and the gated all-AP
                 % fusion with probability rho
-                cCplx(r, ns, si) = sum(N^3 / 3 + ldl' * N^2) + sum(sz .^ 3) / 3 + rho * K * L^3 / 3;
+                cCplx(ru, ns, si) = sum(N^3 / 3 + ldl' * N^2) + sum(sz .^ 3) / 3 + rho * K * L^3 / 3;
             end
             % ---- fronthaul-BER trade-off sweep at the reference SNR ----
             if si == snr_ref_idx
-                for r = 1:nRule
+                for ru = 1:nRule
                     for w = 1:nSw
-                        if r == 1
+                        if ru == 1
                             Dw = cluster_cn_rule(metric_CN, beta, NF_mask, sw_cn_div(w));
-                        elseif r == 2
+                        elseif ru == 2
                             Dw = cluster_ir_rule(R2, Ccl_e, p, D_CN, 'mashdour', sw_ir_scale(w));
                         else
                             Dw = cluster_p1_rule(gHat, sw_p1_eps(w));
@@ -1194,8 +1194,8 @@ parfor ns = 1:nSetups
                             bw = bw + sum(bu(4, :));  bb = bb + bp1 * K;  ew = ew + eX;
                         end
                         szw = sum(Dw, 1);
-                        swBERt(r, w) = bw / max(bb, 1);
-                        swFHt(r, w)  = mean(szw + (ew / nReal_sw) * (L - szw));
+                        swBERt(ru, w) = bw / max(bb, 1);
+                        swFHt(ru, w)  = mean(szw + (ew / nReal_sw) * (L - szw));
                     end
                 end
             end
