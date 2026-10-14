@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+# Generates two .tex files (PDF-detailed and Overleaf-brief) from one shared body.
+# They differ only in how deeply each equation's variables are explained, via \vexp.
+
+PREAMBLE = r"""\documentclass[11pt]{article}
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb,bm,mathtools}
+\usepackage{enumitem}
+\usepackage[dvipsnames]{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{microtype}
+\usepackage[colorlinks=true,linkcolor=NavyBlue,citecolor=ForestGreen,urlcolor=NavyBlue]{hyperref}
+\newtcolorbox{keybox}[1][]{colback=Gray!6,colframe=Gray!55,boxrule=0.5pt,arc=2pt,left=6pt,right=6pt,top=5pt,bottom=5pt,#1}
+\newcommand{\herm}{^{\mathsf{H}}}
+\newcommand{\va}{\mathbf{a}}\newcommand{\vb}{\mathbf{b}}\newcommand{\vh}{\mathbf{h}}
+\newcommand{\vz}{\mathbf{z}}\newcommand{\vw}{\mathbf{w}}\newcommand{\vv}{\mathbf{v}}
+\newcommand{\vy}{\mathbf{y}}\newcommand{\vr}{\mathbf{r}}\newcommand{\vu}{\mathbf{u}}\newcommand{\vc}{\mathbf{c}}
+\newcommand{\vx}{\mathbf{x}}\newcommand{\mG}{\mathbf{G}}\newcommand{\mH}{\mathbf{H}}
+\newcommand{\mC}{\mathbf{C}}\newcommand{\mI}{\mathbf{I}}\newcommand{\mR}{\mathbf{R}}
+\newcommand{\E}{\mathbb{E}}\newcommand{\C}{\mathbb{C}}
+\title{\textbf{Sparse Arrays and Cross-AP Position-Fused Estimation (CAPE)\\for Near-Field Cell-Free XL-MIMO: A Step-by-Step Framework}}
+\date{\today}
+\begin{document}\maketitle
+"""
+
+# ------- the shared body: \vexp{<brief, for Overleaf>}{<detailed, for PDF>} -------
+BODY = r"""
+\section{Why we need a sparse array in our scenario}
+In a near-field cell-free system the useful benefit of an array grows with its \emph{aperture}
+(physical width), not only with its antenna count. A \emph{sparse} array spaces the same antennas
+wider, so for the same number of antennas we obtain a larger aperture. The concrete benefits in our
+scenario are:
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+\item \textbf{Larger near-field region.} The near-field boundary (Rayleigh distance) is
+      $d_{R}=2D^{2}/\lambda$ \cite{lu2024tutorial,bjornson2021primer}; since it grows with the
+      \emph{square} of the aperture $D$, a wider sparse array turns far more links near-field, where
+      distance-based (range) focusing becomes possible.
+\item \textbf{Same aperture with fewer antennas.} A sparse array reaches a target aperture with
+      fewer elements than a dense one, i.e.\ fewer RF chains, which lowers hardware cost and the
+      per-AP processing load \cite{wang2024xltutorial,zhou2025sparse}.
+\item \textbf{Sharper spatial resolution and localization}, because both improve with aperture
+      \cite{zhou2025sparse,chen2024nearfield} (quantified in Sec.~\ref{sec:res}).
+\end{itemize}
+
+\section{How the sparse array helps: conditions, resolution, localization}\label{sec:res}
+\textbf{When it helps.} The extra resolution matters only when users are hard to separate, i.e.\
+\emph{co-angular / crowded} users (close together, seen by an AP at nearly the same angle and
+distance) \cite{chen2024nearfield}. For well-separated users the network already resolves them and
+the gain is small.
+
+\noindent\textbf{Spatial resolution.} The angular resolution scales as
+\begin{equation}
+\Delta s \;\sim\; \lambda/D,
+\label{eq:angres}
+\end{equation}
+\vexp{where $s=\sin\theta$ is the angle variable, $\lambda$ the wavelength and $D$ the aperture.}%
+{Here $\Delta s$ is the smallest difference in the angle variable $s=\sin\theta$ that the array can
+still tell apart (two users closer than this look like one). $\lambda$ is the wavelength (here
+$10$\,cm at $3$\,GHz), and $D$ is the array width in metres. A \emph{bigger} $D$ makes $\Delta s$
+\emph{smaller}, i.e.\ finer angle resolution.}
+and near-field \emph{range} focusing is possible only inside the beam-depth limit
+\cite[Prop.~2]{zhou2025sparse}
+\begin{equation}
+r < r_{\mathrm{th}} \approx \frac{d_{R}\cos^{2}\theta}{10.24}.
+\label{eq:depth}
+\end{equation}
+\vexp{$r$ is the user range, $r_{\mathrm{th}}$ the range below which range focusing works, $\theta$ the angle, $d_R=2D^2/\lambda$.}%
+{Here $r$ is how far the user is from the AP, and $r_{\mathrm{th}}$ is the distance below which the
+array can actually focus in range (tell a near user from a far user on the same line). $\theta$ is
+the user's angle (the $\cos^{2}\theta$ term says focusing weakens towards the array edges), and
+$d_{R}=2D^{2}/\lambda$ is the Rayleigh distance. A larger aperture $D$ raises $d_R$ and hence
+$r_{\mathrm{th}}$, so more users fall inside the range-focusing zone.}
+
+\noindent\textbf{Localization.} The position-error floor obeys the near-field Cram\'er--Rao scaling
+\cite{lu2024tutorial,kosasih2025mla}
+\begin{equation}
+\mathrm{std}(\hat{s})\;\propto\;\frac{\lambda}{D\sqrt{p}},\qquad
+\mathrm{std}(\hat{r})\;\propto\;\frac{r^{2}}{D^{2}\sqrt{p}}.
+\label{eq:crb}
+\end{equation}
+\vexp{$\hat s,\hat r$ are the estimated angle and range, $p$ the SNR, $D$ the aperture, $r$ the range.}%
+{Here $\mathrm{std}(\hat{s})$ and $\mathrm{std}(\hat{r})$ are the typical errors in the estimated
+angle $\hat s$ and range $\hat r$. $p$ is the signal-to-noise ratio (more power $\to$ smaller error),
+and $D$ is the aperture. Both errors shrink as the aperture grows (the range error shrinks with
+$D^{2}$), which is why a wide sparse array localizes users far more accurately.}
+
+\noindent\textbf{Why \emph{non-uniform} sparse.} A \emph{uniform} sparse array (equal large spacing)
+creates strong ghost beams (grating lobes); a \emph{non-uniform} sparse array such as the extended
+co-prime array (ECA) keeps the wide aperture but, through its irregular spacing, suppresses those
+ghosts, leaving only weak scattered side peaks \cite{zhou2025sparse,vaidyanathan2011coprime}.
+
+\section{Proposed strategy (overview)}
+Using a sparse array \emph{alone} gives the resolution of Sec.~\ref{sec:res}, but its wide spacing
+also produces \emph{ambiguity}: besides the true focus the array has side peaks (for a uniform array,
+full-height grating lobes; for the ECA, weak ones). A single AP cannot always tell the true peak from
+a side peak, so per-AP estimation can lock onto the wrong one and the channel estimate degrades. To
+keep the resolution \emph{and} remove the ambiguity we propose \textbf{CAPE} (Cross-AP Position-fused
+Estimation): several APs agree on the user's single physical position, which the side peaks of one AP
+do not support. We then show that CAPE is \emph{complementary} to the cross-AP list-based successive
+interference cancellation (SIC) detector of \cite{haider2026icassp,haider2026vtc}: by supplying clean
+channels it makes that detector both more accurate and cheaper (it triggers its expensive all-AP
+fusion less often).
+
+\section{Sparse-array (ECA) model and antenna arrangement}
+There are $L$ APs, each with a non-uniform sparse (ECA) array of $N$ antennas, serving $K$
+single-antenna users on the uplink, all connected to a central processing unit (CPU)
+\cite{ngo2017cellfree,bjornson2020scalable}.
+
+\noindent\textbf{Antenna arrangement (ECA).} With co-prime integers $M,\tilde N$ ($\gcd=1$), one
+block is
+\begin{equation}
+\mathcal{B}=\{\,m\tilde N:0\!\le\! m\!<\!M\,\}\cup\{\,n M:0\!\le\! n\!<\!\tilde N\,\},
+\label{eq:block}
+\end{equation}
+\vexp{$M,\tilde N$ are co-prime integers; $\mathcal B$ is one block of element indices (units of $d_0=\lambda/2$).}%
+{Here $M$ and $\tilde N$ are two whole numbers with no common factor (we use $5$ and $4$).
+$\mathcal{B}$ is the set of antenna \emph{positions} in one building block, measured in steps of
+$d_{0}=\lambda/2$: five antennas spaced $\tilde N$ apart merged with four spaced $M$ apart. The
+unequal gaps are what makes the array non-uniform.}
+and the full array repeats the block $B$ times and mirrors it,
+\begin{equation}
+\mathcal{N}=\!\!\bigcup_{b=0}^{B/2-1}\!\!\big\{\pm(bM\tilde N+a):a\in\mathcal{B}\big\},\quad
+x_{n}=(\mathcal{N}_{n}-\bar{\mathcal N})\,d_{0},\quad D=x_{N}-x_{1}.
+\label{eq:eca}
+\end{equation}
+\vexp{$\mathcal N$ is the element-index set, $x_n$ the $n$-th position in metres, $B$ the number of blocks, $N=|\mathcal N|$, $D$ the aperture.}%
+{Here $\mathcal{N}$ is the complete list of antenna indices, obtained by placing $B$ copies of the
+block end to end (period $M\tilde N$) and mirroring about the centre. $x_{n}$ is the actual position
+of antenna $n$ in metres ($\bar{\mathcal N}$ just centres the array), $B$ is the number of blocks
+(even), $N=|\mathcal{N}|$ is the total antenna count, and $D$ is the aperture (array width). For
+$M=5,\tilde N=4,B=8$ this gives $N=63$ antennas over $D=7.6$\,m.}
+
+\noindent\textbf{Near-field channel.} For a user at range $r_{l,k}$ and effective angle $s_{l,k}$
+from AP $l$, the distance to antenna $n$ and the (spherical-wave) channel are
+\cite{cui2022channel,lu2024tutorial}
+\begin{align}
+r_{l,k,n}&=\sqrt{\,r_{l,k}^{2}+x_{n}^{2}-2\,r_{l,k}\,x_{n}\,s_{l,k}\,},\label{eq:rn}\\
+\vh_{l,k}&=\sqrt{\beta_{l,k}}\;\va(r_{l,k},s_{l,k}),\qquad
+[\va(r,s)]_{n}=\tfrac{1}{\xi}\tfrac{r}{r_{n}}e^{-\jmath\frac{2\pi}{\lambda}(r_{n}-r)}.\label{eq:nusw}
+\end{align}
+\vexp{$r_{l,k,n}$ is the AP-$l$ antenna-$n$ to user-$k$ distance; $\vh_{l,k}\in\C^N$ the channel; $\beta_{l,k}$ the large-scale gain; $\va$ the unit-norm near-field steering vector; $\xi$ a normalizer; $s=\sin\varphi\cos\theta$.}%
+{Here $r_{l,k,n}$ is the exact distance from antenna $n$ of AP $l$ to user $k$ (it differs across
+antennas because the wavefront is curved in the near field). $\vh_{l,k}$ is the channel vector (one
+complex number per antenna). $\beta_{l,k}$ is the large-scale gain (path loss and shadowing, noise-
+normalized). $\va(r,s)$ is the \emph{near-field steering vector}: the array's response to a source at
+range $r$ and angle $s=\sin\varphi\cos\theta$; the term $r/r_{n}$ is the near-field amplitude taper,
+the exponential is the phase, and $\xi$ makes it unit length. The key point: $\vh_{l,k}$ depends only
+on the user's \emph{position} $(r_{l,k},s_{l,k})$ --- this is what CAPE exploits.}
+A link is near-field when $r_{l,k}<d_{R}=2D^{2}/\lambda$; otherwise it is far-field with covariance
+$\mR_{l,k}$ \cite{bjornson2021primer}.
+
+\noindent\textbf{Received pilots.} With orthogonal pilots of length $\tau=K$, after de-spreading,
+AP $l$ obtains for user $k$ \cite{ngo2017cellfree}
+\begin{equation}
+\vz_{l,k}=\vh_{l,k}+\vw_{l,k},\qquad \vw_{l,k}\sim\mathcal{CN}(\mathbf 0,\sigma^{2}\mI_{N}),\;\;
+\sigma^{2}=\tfrac{1}{p\tau}.
+\label{eq:despread}
+\end{equation}
+\vexp{$\vz_{l,k}$ is the observed pilot; $\vw_{l,k}$ the noise; $\sigma^2$ its power; $p$ the pilot SNR; $\tau=K$ the pilot length.}%
+{Here $\vz_{l,k}$ is the noisy measurement AP $l$ gets of user $k$'s channel; $\vw_{l,k}$ is additive
+Gaussian noise of power $\sigma^{2}$; $p$ is the pilot SNR and $\tau=K$ the pilot length, so stronger
+pilots or more pilots give smaller $\sigma^{2}$. Each AP must estimate $\vh_{l,k}$ from $\vz_{l,k}$.}
+
+\section{The ambiguity and the baseline (per-AP) estimator}
+The response between a trial point $(r,s)$ and the true one is
+\begin{equation}
+g_{l}(r,s)=\big|\va(r,s)\herm\va(r_{l,k},s_{l,k})\big|\in[0,1],
+\label{eq:beam}
+\end{equation}
+\vexp{$g_l$ is the normalized spatial correlation between a trial location and the true one.}%
+{Here $g_{l}(r,s)$ measures how much a beam aimed at the trial location $(r,s)$ still ``sees'' the
+true user; $g=1$ at the true spot. For a dense array $g$ has one peak; for a sparse array it also has
+\emph{side peaks} (the ambiguity). For a uniform sparse array these are strong grating lobes at
+$\sin\theta_{u}=\sin\theta_{0}+2u/\eta$ \cite[Lemma~5]{zhou2025sparse}; for the ECA they are weak.}
+The conventional estimator runs orthogonal matching pursuit (OMP) \emph{independently} at each AP
+\cite{tropp2007omp,cui2022channel}: it repeatedly picks the strongest peak and keeps it only if it
+clears a noise threshold,
+\begin{align}
+(\hat s,\hat q)&=\arg\max_{(s,q)}\big|\va(s,q)\herm\vr\big|,\label{eq:omp1}\\
+\text{accept iff}\quad&\big|\va(\hat s,\hat q)\herm\vr\big|^{2}\ge\gamma\sigma^{2},\;\;
+\gamma=\ln D_{\mathrm{dic}}+0.58+c,\label{eq:omp2}
+\end{align}
+\vexp{$(\hat s,\hat q)$ is the selected angle and inverse-range $q=1/r$; $\vr$ the OMP residual; $\gamma$ the significance threshold; $D_{\mathrm{dic}}$ the dictionary size; $c\ge0$ a margin.}%
+{Here $(\hat s,\hat q)$ is the estimated angle $\hat s$ and inverse range $\hat q=1/\hat r$ of one
+path; $\vr$ is the leftover signal after removing earlier paths (the residual). Equation
+\eqref{eq:omp2} rejects noise-only peaks: $\gamma\sigma^{2}$ is the level the strongest of
+$D_{\mathrm{dic}}$ pure-noise correlations reaches ($D_{\mathrm{dic}}$ is the number of trial atoms,
+$c$ a safety margin). \textbf{Problem on a sparse array:} on a weak link, \eqref{eq:omp1} may pick a
+\emph{side peak} of $g_{l}$, so the estimated channel points the wrong way.}
+The channel then uses an LMMSE (Wiener) weighting of the selected atoms, giving
+$\hat{\vh}^{\mathrm{loc}}_{l,k}$ and error variance $\varepsilon^{2}_{l,k}$, with
+$\mC_{l,k}=\varepsilon^{2}_{l,k}\mI_{N}$ \cite{cui2022channel}.
+
+\section{CAPE: cross-AP position-fused estimation (proposed)}
+\textbf{Idea.} A user has one physical location $\vu_{k}$, and by \eqref{eq:nusw} every AP's channel
+is a known function of it. We find the single location the strongest APs agree on; a side peak of one
+AP is rejected because the other APs do not support it.
+
+\noindent\textbf{Step 1 --- geometry of a trial location.} For any trial point $\vu\in\C$,
+\begin{equation}
+d_{l}(\vu)=|\vu-\vc_{l}|,\quad r_{l}(\vu)=\sqrt{\Delta h^{2}+d_{l}^{2}(\vu)},\quad
+s_{l}(\vu)=\sin\!\big(\angle(\vu-\vc_{l})\big)\tfrac{d_{l}(\vu)}{r_{l}(\vu)},
+\label{eq:geo}
+\end{equation}
+\vexp{$\vu$ is a trial horizontal location; $\vc_l$ the AP-$l$ location; $d_l$ the horizontal distance; $r_l$ the 3-D distance; $\Delta h$ the height gap; $s_l$ the effective angle; $\va_l(\vu)=\va(r_l(\vu),s_l(\vu))$.}%
+{Here $\vu$ is any guessed user location on the map, $\vc_{l}$ is AP $l$'s location, $d_{l}$ is the
+flat (horizontal) distance between them, $\Delta h$ is the AP--user height difference, $r_{l}$ is the
+true 3-D distance, and $s_{l}$ is the matching effective angle. From these, AP $l$'s expected atom is
+$\va_{l}(\vu)=\va(r_{l}(\vu),s_{l}(\vu))$. In words: pick a point on the map and every AP knows which
+beam would point there.}
+
+\noindent\textbf{Step 2 --- candidate locations.} Each strong local peak $(\hat s,\hat q)$ of the
+$N_{\mathrm c}$ strongest APs maps to two mirror locations (a line array cannot tell front from back):
+\begin{equation}
+\hat r=1/\hat q,\;\; d=\sqrt{\hat r^{2}-\Delta h^{2}},\;\;
+\hat\varphi\in\!\Big\{\arcsin\!\tfrac{\hat s\hat r}{d},\,\pi-\arcsin\!\tfrac{\hat s\hat r}{d}\Big\},\;\;
+\vu=\vc_{l}+d\,e^{\jmath\hat\varphi}.
+\label{eq:cand}
+\end{equation}
+\vexp{$\hat r$ is the estimated range, $d$ the horizontal distance, $\hat\varphi$ the two candidate azimuths; the candidates form the set $\mathcal X_k$; $N_{\mathrm c}$ APs propose them.}%
+{Here each AP turns its own peak into map points: $\hat r=1/\hat q$ is the guessed range, $d$ the
+horizontal distance, and $\hat\varphi$ the azimuth --- there are \emph{two} because the array cannot
+distinguish a point in front from its mirror. Collecting these from the $N_{\mathrm c}$ strongest APs
+gives the candidate set $\mathcal X_{k}$ (the true location plus several false ones).}
+
+\noindent\textbf{Step 3 --- cross-AP fused likelihood.} Score each candidate by how well it matches
+the $N_{\mathrm{AP}}$ strongest APs \emph{together} (each AP has an unknown gain, hence magnitudes):
+\begin{equation}
+J_{k}(\vu)=\sum_{l\in\mathcal F_{k}}\big|\va_{l}(\vu)\herm\vz_{l,k}\big|^{2},\qquad
+\hat{\vu}_{k}=\arg\max_{\vu\in\mathcal X_{k}}J_{k}(\vu).
+\label{eq:fuse}
+\end{equation}
+\vexp{$J_k(\vu)$ is the fused score of a candidate; $\mathcal F_k$ the set of $N_{\mathrm{AP}}$ fused APs; $\hat\vu_k$ the chosen location.}%
+{Here $J_{k}(\vu)$ is the total ``agreement'' score of a candidate location across the fused AP set
+$\mathcal F_{k}$ (the $N_{\mathrm{AP}}$ strongest APs): each term measures how strongly AP $l$'s
+measurement $\vz_{l,k}$ supports the beam $\va_{l}(\vu)$. The true location scores high at all APs;
+$\hat{\vu}_{k}$ is the best-scoring candidate.}
+
+\noindent\textbf{Step 4 --- refinement.} Polish $\hat{\vu}_{k}$ by a local $2$-D pattern search (step
+$\delta$, halved on failure):
+\begin{equation}
+\hat{\vu}_{k}\leftarrow\arg\max_{\vu\in\{\hat{\vu}_{k}+\delta e^{\jmath 2\pi i/8}\}_{i=0}^{7}\cup\{\hat{\vu}_{k}\}}J_{k}(\vu),\qquad \delta\leftarrow\delta/2.
+\label{eq:refine}
+\end{equation}
+\vexp{$\delta$ is the search step size, halved whenever no neighbour improves the score.}%
+{Here $\delta$ is the step of a small search around the current estimate: we test eight neighbours;
+if one is better we move there, otherwise we halve $\delta$ and look closer. This fine-tunes the
+position to sub-metre accuracy.}
+
+\noindent\textbf{Step 5 --- per-AP channel from the agreed position, with a gate.} For every
+near-field AP $l$, build the atom from $\hat{\vu}_{k}$ ($\vb_{l}^{\mathrm{fus}}$) and keep the AP's
+own local atom $\vb_{l}^{\mathrm{loc}}$ only when it is clearly better:
+\begin{equation}
+\vb_{l}=
+\begin{cases}
+\vb_{l}^{\mathrm{loc}}, & |\vb_{l}^{\mathrm{loc}\,\mathsf H}\vb_{l}^{\mathrm{fus}}|\ge\mu_{\mathrm c}\ \text{and}\ m^{\mathrm{loc}}_{l}>m^{\mathrm{fus}}_{l},\ \text{or}\ (m^{\mathrm{loc}}_{l})^{2}-(m^{\mathrm{fus}}_{l})^{2}>\gamma_{0}\sigma^{2},\\
+\vb_{l}^{\mathrm{fus}}, & \text{otherwise},
+\end{cases}
+\label{eq:gate}
+\end{equation}
+\vexp{$\vb_l$ is the chosen atom; $\vb_l^{\mathrm{fus}},\vb_l^{\mathrm{loc}}$ the fused and local atoms; $m^{(\cdot)}_l=|\vb_l^{(\cdot)\mathsf H}\vz_{l,k}|$ the fit strength; $\mu_{\mathrm c}$ the consistency threshold; $\gamma_0=\ln D_{\mathrm{dic}}+0.58$.}%
+{Here $\vb_{l}$ is the atom AP $l$ finally uses. $\vb_{l}^{\mathrm{fus}}$ is built from the agreed
+position, $\vb_{l}^{\mathrm{loc}}$ is the AP's own best local atom, and $m^{(\cdot)}_{l}=
+|\vb_{l}^{(\cdot)\mathsf H}\vz_{l,k}|$ is how well each fits the data. The gate keeps the local one
+only if it sits on the same lobe ($\mu_{\mathrm c}$ is the overlap threshold) and fits better, or
+fits better than the noise level $\gamma_{0}\sigma^{2}$. This guarantees CAPE is never worse than
+local estimation at high SNR.}
+The channel uses a prior Wiener gain and a residual-based error variance,
+\begin{equation}
+\hat{\vh}^{\mathrm{cape}}_{l,k}=\vb_{l}\,\frac{N\beta_{l,k}}{N\beta_{l,k}+\sigma^{2}}\,(\vb_{l}\herm\vz_{l,k}),
+\qquad \mC_{l,k}=\varepsilon_{l,k}^{2}\mI_{N}.
+\label{eq:caheh}
+\end{equation}
+\vexp{$\hat\vh^{\mathrm{cape}}_{l,k}$ is the CAPE channel estimate; $N\beta_{l,k}/(N\beta_{l,k}+\sigma^2)$ the Wiener gain; $\varepsilon^2_{l,k}$ the error variance; $\mC_{l,k}$ the error covariance.}%
+{Here $\hat{\vh}^{\mathrm{cape}}_{l,k}$ is the final channel estimate: the direction $\vb_{l}$ scaled
+by the measured amplitude $\vb_{l}\herm\vz_{l,k}$ and a Wiener gain $N\beta_{l,k}/(N\beta_{l,k}+
+\sigma^{2})$ that shrinks weak/noisy links. $\varepsilon_{l,k}^{2}$ is the leftover error power (from
+the residual), and $\mC_{l,k}$ the error covariance used by the detector. Far-field links keep the
+statistical LMMSE estimate \cite{bjornson2021primer}.}
+
+\noindent\textbf{Why fusion removes the ambiguity.} For the true location $\vu_{k}$ versus a false
+one $\vu'$ that is a side peak of AP $l^{\star}$ with level $\rho=g_{l^{\star}}(\vu')$, using
+$\|\vh_{l,k}\|^{2}\!\approx\!N\beta_{l,k}$,
+\begin{align}
+\E[J_{k}(\vu_{k})]&\approx\sum_{l\in\mathcal F_{k}}(N\beta_{l,k}+\sigma^{2}),\label{eq:Jtrue}\\
+\E[J_{k}(\vu')]&\approx N\beta_{l^{\star},k}\rho^{2}+\!\!\sum_{m\in\mathcal F_{k}\setminus\{l^{\star}\}}\!\!(N\beta_{m,k}\rho_{m}^{2}+\sigma^{2}),\quad\rho_{m}\!\ll\!1,\label{eq:Jfalse}\\
+\frac{\E[J_{k}(\vu_{k})]}{\E[J_{k}(\vu')]}&\gtrsim\frac{\sum_{l\in\mathcal F_{k}}N\beta_{l,k}}{N\beta_{l^{\star},k}\rho^{2}}\xrightarrow[|\mathcal F_{k}|\ \text{large}]{}\gg 1.\label{eq:ratio}
+\end{align}
+\vexp{$\rho$ is the side-lobe level at the one aligned AP $l^\star$; $\rho_m\ll1$ the (low) correlation at the other APs; $|\mathcal F_k|$ the number of fused APs.}%
+{Here $\rho=g_{l^{\star}}(\vu')$ is how strong the false point looks at the one AP ($l^{\star}$) that
+has a side peak there, while $\rho_{m}\ll1$ is how weak it looks at every other AP $m$ (a different AP
+sees that point at a different angle/range, so it does not line up). Thus the true location's score
+\eqref{eq:Jtrue} adds up over \emph{all} APs, but the false one \eqref{eq:Jfalse} is supported by only
+one AP; the ratio \eqref{eq:ratio} grows with the number of fused APs $|\mathcal F_{k}|$. This needs
+$\rho_{m}\ll1$, which holds for the ECA (irregular side peaks) but \emph{not} for a uniform sparse
+array (strong, regular grating lobes).}
+
+\section{Detection and the benefit of CAPE to the cross-AP list detector}
+Each AP forms a local MMSE combiner and the CPU fuses the AP outputs by large-scale fading decoding
+(LSFD) \cite{bjornson2020scalable}; hard symbols are resolved by the cross-AP list-based SIC detector
+of our prior work \cite{haider2026icassp,haider2026vtc}:
+\begin{equation}
+\vv_{l,k}=\Big(p\,\hat{\mH}_{l}\hat{\mH}_{l}\herm+p\!\sum_{j}\mC_{l,j}+\mI_{N}\Big)^{-1}\hat{\vh}_{l,k},
+\qquad
+\bar B_{k}=|\mathcal S_{k}|+\rho\,(L-|\mathcal S_{k}|).
+\label{eq:det}
+\end{equation}
+\vexp{$\vv_{l,k}$ is the local MMSE combiner; $\hat\mH_l$ the matrix of AP-$l$ estimates; $\mathcal S_k$ the serving cluster; $\bar B_k$ the fronthaul; $\rho$ the gate-firing rate.}%
+{Here $\vv_{l,k}$ is AP $l$'s receive filter for user $k$ (built from the estimated channels
+$\hat{\mH}_{l}$ and their error covariances $\mC_{l,j}$). $\mathcal S_{k}$ is the set of APs serving
+user $k$ (its cluster), $L$ the total APs, and $\bar B_{k}$ the fronthaul cost: the cluster always
+sends $|\mathcal S_{k}|$ values, plus the extra all-AP fusion for the remaining $L-|\mathcal S_{k}|$
+APs is used only a fraction $\rho$ of the time (the gate-firing rate).}
+
+\noindent\textbf{Role of CAPE for the detectors.} From the measured results we observe:
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+\item \textbf{Simple / list detectors (Linear, hard-SIC, list-SIC):} these use \emph{per-AP}
+      resolution, so the sparse array helps them \emph{even without} CAPE (e.g.\ list-SIC BER $\approx
+      2.1\times10^{-2}$ for ECA vs $3.1\times10^{-2}$ for the dense array at $20$\,dB, crowded).
+\item \textbf{Cross-AP list detector \emph{without} CAPE:} fusing \emph{inaccurate} ECA estimates
+      across APs can propagate errors, so the plain ECA can be \emph{worse} than the dense array
+      ($1.7\times10^{-3}$ vs $1.3\times10^{-3}$).
+\item \textbf{Cross-AP list detector \emph{with} CAPE:} clean channels make the fusion reliable,
+      giving the best end-to-end BER ($5.5\times10^{-4}$, $\approx2.3\times$ below the dense array)
+      \emph{and} a lower gate-firing rate $\rho$, i.e.\ \emph{lower fronthaul / complexity}.
+\end{itemize}
+Hence CAPE and the cross-AP list detector are complementary: $\rho$ in \eqref{eq:det} drops because
+better channels reduce the hard cases, so CAPE both improves accuracy and reduces the detector's
+cost. The gains are large for crowded/co-angular users and shrink to a tie for well-separated users.
+"""
+
+PDF_END = r"""
+\begin{thebibliography}{99}\small
+\bibitem{ngo2017cellfree} H.~Q.~Ngo \emph{et al.}, ``Cell-free massive MIMO versus small cells,'' \emph{IEEE Trans. Wireless Commun.}, 16(3):1834--1850, 2017.
+\bibitem{bjornson2020scalable} E.~Bj\"ornson and L.~Sanguinetti, ``Scalable cell-free massive MIMO systems,'' \emph{IEEE Trans. Commun.}, 68(7):4247--4261, 2020.
+\bibitem{zhou2025sparse} C.~Zhou \emph{et al.}, ``Sparse array enabled near-field communications: Beam pattern analysis and hybrid beamforming design,'' \emph{IEEE Trans. Wireless Commun.}, 2025, arXiv:2401.05690.
+\bibitem{vaidyanathan2011coprime} P.~P.~Vaidyanathan and P.~Pal, ``Sparse sensing with co-prime samplers and arrays,'' \emph{IEEE Trans. Signal Process.}, 59(2):573--586, 2011.
+\bibitem{cui2022channel} M.~Cui and L.~Dai, ``Channel estimation for extremely large-scale MIMO: Far-field or near-field?'' \emph{IEEE Trans. Commun.}, 70(4):2663--2677, 2022.
+\bibitem{chen2024nearfield} K.~Chen \emph{et al.}, ``Near-field multiuser communications based on sparse arrays,'' \emph{IEEE JSTSP}, 2024, arXiv:2406.09238.
+\bibitem{bjornson2021primer} E.~Bj\"ornson \emph{et al.}, ``A primer on near-field beamforming for arrays and RIS,'' in \emph{Proc. Asilomar}, 2021.
+\bibitem{lu2024tutorial} H.~Lu \emph{et al.}, ``A tutorial on near-field XL-MIMO communications toward 6G,'' \emph{IEEE COMST}, 2024, arXiv:2310.11044.
+\bibitem{wang2024xltutorial} Z.~Wang \emph{et al.}, ``A tutorial on extremely large-scale MIMO for 6G,'' \emph{IEEE COMST}, 2024.
+\bibitem{kosasih2025mla} A.~Kosasih \emph{et al.}, ``Near-field beamfocusing, localization, and channel estimation with modular linear arrays,'' arXiv:2505.07991, 2025.
+\bibitem{tropp2007omp} J.~A.~Tropp and A.~C.~Gilbert, ``Signal recovery from random measurements via OMP,'' \emph{IEEE Trans. Inf. Theory}, 53(12):4655--4666, 2007.
+\bibitem{haider2026icassp} N.~Haider and R.~C.~de~Lamare, ``Cross-AP list-based interference cancellation for near-field cell-free XL-MIMO,'' submitted to IEEE ICASSP, 2026.
+\bibitem{haider2026vtc} N.~Haider and R.~C.~de~Lamare, ``Cross-AP channel estimation and interference cancellation for near-field cell-free XL-MIMO,'' submitted to IEEE VTC, 2026.
+\bibitem{haider2026wcl} N.~Haider and R.~C.~de~Lamare, ``Iterative interference cancellation for mixed near- and far-field XL-MIMO,'' \emph{IEEE WCL}, 15:5323--5327, 2026.
+\end{thebibliography}
+\end{document}
+"""
+
+OVERLEAF_END = r"""
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+\end{document}
+"""
+
+import os
+d = os.path.dirname(os.path.abspath(__file__))
+# PDF version: \vexp picks the 2nd (detailed) argument
+pdf = PREAMBLE + "\\newcommand{\\vexp}[2]{\\par\\smallskip\\noindent\\textit{Here:} #2}\n" + BODY + PDF_END
+open(os.path.join(d, "cape_framework_pdf.tex"), "w").write(pdf)
+# Overleaf version: \vexp picks the 1st (brief) argument
+ovl = PREAMBLE.replace("\\usepackage[colorlinks", "\\usepackage{cite}\n\\usepackage[colorlinks") \
+      + "\\newcommand{\\vexp}[2]{\\par\\smallskip\\noindent where #1}\n" + BODY + OVERLEAF_END
+open(os.path.join(d, "cape_framework_overleaf.tex"), "w").write(ovl)
+print("wrote cape_framework_pdf.tex and cape_framework_overleaf.tex")
