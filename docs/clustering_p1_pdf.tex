@@ -1,0 +1,235 @@
+\documentclass[11pt]{article}
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage{amsmath,amssymb,bm,mathtools}
+\usepackage{enumitem}
+\usepackage[dvipsnames]{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{microtype}
+\usepackage[colorlinks=true,linkcolor=NavyBlue,citecolor=ForestGreen,urlcolor=NavyBlue]{hyperref}
+\newtcolorbox{keybox}[1][]{colback=Gray!6,colframe=Gray!55,boxrule=0.5pt,arc=2pt,left=6pt,right=6pt,top=5pt,bottom=5pt,#1}
+\newtcolorbox{propbox}[1][]{colback=NavyBlue!5,colframe=NavyBlue!55,boxrule=0.6pt,arc=2pt,left=7pt,right=7pt,top=6pt,bottom=6pt,#1}
+\newtcolorbox{algbox}[1][]{colback=ForestGreen!5,colframe=ForestGreen!50,boxrule=0.6pt,arc=2pt,left=7pt,right=7pt,top=6pt,bottom=6pt,#1}
+\newcommand{\herm}{^{\mathsf{H}}}
+\newcommand{\vh}{\mathbf{h}}\newcommand{\vv}{\mathbf{v}}\newcommand{\mH}{\mathbf{H}}
+\newcommand{\mC}{\mathbf{C}}\newcommand{\mI}{\mathbf{I}}\newcommand{\mR}{\mathbf{R}}\newcommand{\mQ}{\mathbf{Q}}
+\newcommand{\Sk}{\mathcal{S}_k}\newcommand{\E}{\mathbb{E}}
+\title{\textbf{A Detector-Aware Information-Surplus Clustering Rule (P1)\\for Cell-Free Massive MIMO: Principle, Steps, and Analysis}}
+\date{\today}
+\begin{document}\maketitle
+\newcommand{\vexp}[2]{\par\smallskip\noindent\textit{#2}}
+
+\begin{keybox}
+\textbf{In one line.} P1 chooses, for each user, the \emph{smallest} set of access points (APs)
+whose post-combining SINRs add up to at least a fraction $(1-\epsilon)$ of the user's total SINR
+over all APs. This gives a \emph{tunable, provable} guarantee on how much information the cluster
+keeps, using the quantity the detector actually sees (SINR), not just the channel strength.
+\end{keybox}
+
+\section{Background and motivation (why cluster at all)}
+In cell-free massive MIMO a user is served not by all $L$ APs but by a small \emph{user-centric}
+cluster $\Sk\subseteq\{1,\dots,L\}$, to keep the fronthaul and the receiver complexity scalable
+\cite{ngo2017cellfree,buzzi2017usercentric,interdonato2019ubiquitous,bjornson2020scalable}. The open
+question is \emph{which} APs to pick. Two common families are:
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+\item \textbf{Channel-norm / large-scale-fading (CN):} keep the APs whose channel strength exceeds a
+      threshold (dynamic cooperation clustering, largest-large-scale-fading selection)
+      \cite{bjornson2020scalable,ngo2018totalenergy}. Simple, but ignores interference and
+      estimation error.
+\item \textbf{Information-rate (IR):} keep the APs whose per-link achievable rate exceeds a threshold
+      \cite{mashdour2024clustering}. Better, but the rate used omits multi-user interference, and the
+      cluster size grows with SNR (hence the fronthaul grows).
+\end{itemize}
+\textbf{Our aim.} A rule that (i) uses the \emph{receiver} quantity (post-combining SINR, which
+already contains interference and estimation error), (ii) gives a \emph{provable} bound on the
+information lost by clustering, and (iii) keeps a \emph{bounded, stable} cluster size. This is P1.
+
+\section{The quantity P1 acts on: per-AP SINR}
+Each AP $l$ forms a local MMSE combiner for user $k$ from the estimated channels
+\cite{nayebi2016lsfd,bjornson2020scalable}
+\begin{equation}
+\vv_{l,k}=\big(p\,\hat{\mH}_{l}\hat{\mH}_{l}\herm+\mQ_{l}\big)^{-1}\hat{\vh}_{l,k},\qquad
+\mQ_{l}=p\sum_{j=1}^{K}\mC_{l,j}+\mI_{N},
+\label{eq:comb}
+\end{equation}
+\vexp{$\vv_{l,k}$ is the AP-$l$ receive filter for user $k$; $\hat{\mH}_l=[\hat\vh_{l,1},\dots,\hat\vh_{l,K}]$ the estimates; $p$ the SNR; $\mC_{l,j}$ the estimation-error covariance; $\mQ_l$ the noise-plus-error term; $N$ antennas per AP.}%
+{Here $\vv_{l,k}$ is the receive filter AP $l$ uses for user $k$. $\hat{\mH}_{l}=[\hat{\vh}_{l,1},
+\dots,\hat{\vh}_{l,K}]$ stacks the estimated channels of all $K$ users at AP $l$, $p$ is the SNR,
+$\mC_{l,j}$ is the channel-estimation-error covariance of user $j$, and $\mQ_{l}$ collects the noise
+($\mI_{N}$) and the error energy. $N$ is the number of antennas per AP. In words: each AP builds the
+best linear filter it can from what it \emph{estimated}, not from the perfect channel.}
+The resulting post-combining SINR of user $k$ at AP $l$ is
+\begin{equation}
+\gamma_{l,k}=\frac{p\,\big|\vv_{l,k}\herm\hat{\vh}_{l,k}\big|^{2}}
+{p\sum_{j\neq k}\big|\vv_{l,k}\herm\hat{\vh}_{l,j}\big|^{2}+\vv_{l,k}\herm\mQ_{l}\vv_{l,k}}.
+\label{eq:sinr}
+\end{equation}
+\vexp{$\gamma_{l,k}$ is the post-combining SINR of user $k$ at AP $l$; the numerator is the wanted power, the denominator is interference from the other users plus noise-and-error.}%
+{Here $\gamma_{l,k}$ is how clean user $k$'s signal is after AP $l$'s filter: the top is the useful
+signal power, the bottom is the leftover interference from the other $K\!-\!1$ users plus the noise
+and estimation error. Unlike channel norm, $\gamma_{l,k}$ already knows about interference and
+estimation error --- this is what makes P1 ``detector-aware''.}
+Under large-scale fading decoding (LSFD) the central processor fuses the AP outputs, and the total
+(all-AP) SINR of user $k$ is the sum of the per-AP SINRs \cite{nayebi2016lsfd}
+\begin{equation}
+\Gamma_{k}=\sum_{l=1}^{L}\gamma_{l,k},\qquad R_{k}=\log_{2}(1+\Gamma_{k}).
+\label{eq:total}
+\end{equation}
+\vexp{$\Gamma_k$ is the total SINR over all $L$ APs; $R_k$ the achievable rate.}%
+{Here $\Gamma_{k}$ is the best SINR user $k$ could get if \emph{all} APs served it, and $R_{k}$ is
+the matching rate. Equation \eqref{eq:total} (SINRs add across APs under optimal LSFD fusion) is the
+foundation of P1: clustering just decides which terms of this sum we keep.}
+
+\section{Baseline rules (what we compare against)}
+\textbf{CN (channel norm).} With a per-regime strength metric $\mu_{l,k}$
+($\mu_{l,k}=\|\hat{\vh}^{\det}_{l,k}\|^{2}$ for near-field links \cite{cui2022channel}, $\mu_{l,k}=
+\beta_{l,k}$ for far-field), keep the APs above a fraction of the strongest, plus the best AP
+\cite{bjornson2020scalable}:
+\begin{equation}
+\Sk^{\mathrm{CN}}=\Big\{l:\mu_{l,k}\ge\tfrac{1}{\delta}\max_{l'}\mu_{l',k}\Big\}\cup\{\arg\max_{l}\mu_{l,k}\}.
+\label{eq:cn}
+\end{equation}
+\vexp{$\mu_{l,k}$ is the channel-strength metric; $\beta_{l,k}$ the large-scale gain; $\delta>1$ the threshold divisor.}%
+{Here $\mu_{l,k}$ measures how strong the channel is (its energy), $\beta_{l,k}$ is the large-scale
+gain (path loss/shadowing), and $\delta>1$ sets the threshold: a larger $\delta$ keeps more APs. CN
+only looks at strength, so it cannot tell a strong-but-interfered AP from a useful one.}
+
+\noindent\textbf{IR (information rate, Mashdour--de~Lamare).} Score each link by an
+interference-free rate and keep those above the average, plus the best AP \cite{mashdour2024clustering}:
+\begin{equation}
+\rho_{l,k}=\log_{2}\!\Big(1+\frac{p\,(\operatorname{tr}\mR_{l,k}-\operatorname{tr}\mC_{l,k})}{p\operatorname{tr}\mC_{l,k}+1}\Big),\quad
+\Sk^{\mathrm{IR}}=\{l:\rho_{l,k}\ge c\,\bar\rho\}\cup\{\arg\max_{l}\rho_{l,k}\}.
+\label{eq:ir}
+\end{equation}
+\vexp{$\rho_{l,k}$ is the per-link rate (signal over estimation error plus noise, no interference); $\mR_{l,k}$ the channel covariance; $\bar\rho$ the mean rate over all links; $c$ a scale factor.}%
+{Here $\rho_{l,k}$ is a per-link rate built from the estimated-signal power $\operatorname{tr}\mR_{l,k}
+-\operatorname{tr}\mC_{l,k}$ over the estimation error $\operatorname{tr}\mC_{l,k}$ plus noise; $\mR_{l,k}$
+is the channel covariance, $\bar\rho$ the average of $\rho$ over all links, and $c$ a scaling knob.
+\textbf{Limitation:} $\rho_{l,k}$ has \emph{no} interference term, and because it is an \emph{absolute}
+threshold, more links pass as the SNR rises, so the cluster (and the fronthaul) grows with SNR.}
+
+\section{Proposed rule: P1 (detector-aware information-surplus clustering)}
+P1 works directly on the per-AP SINRs \eqref{eq:sinr}. Sort them in decreasing order,
+\begin{equation}
+\gamma_{(1),k}\ge\gamma_{(2),k}\ge\dots\ge\gamma_{(L),k},
+\label{eq:sort}
+\end{equation}
+\vexp{$\gamma_{(i),k}$ is the $i$-th largest per-AP SINR of user $k$; $(\cdot)$ denotes the sorted order.}%
+{Here $\gamma_{(i),k}$ is the $i$-th strongest AP for user $k$ (so $\gamma_{(1),k}$ is the best AP).
+We rank the APs by how much clean signal each contributes.}
+and keep the fewest top APs whose SINRs already cover a fraction $(1-\epsilon)$ of the total:
+\begin{equation}
+\boxed{\;m_{k}=\min\Big\{m:\ \textstyle\sum_{i=1}^{m}\gamma_{(i),k}\ \ge\ (1-\epsilon)\,\Gamma_{k}\Big\},
+\qquad \Sk^{\mathrm{P1}}=\{(1),\dots,(m_{k})\}.\;}
+\label{eq:p1}
+\end{equation}
+\vexp{$m_k=|\Sk^{\mathrm{P1}}|$ is the cluster size; $\epsilon\in(0,1)$ the surplus tolerance ($1-\epsilon$ the target coverage); $\Gamma_k$ from \eqref{eq:total}.}%
+{Here $m_{k}$ is the chosen cluster size (number of APs for user $k$), and $\epsilon\in(0,1)$ is the
+only knob: $1-\epsilon$ is the fraction of the total SINR we insist on keeping (e.g.\ $\epsilon=0.1$
+keeps $90\%$). We add APs, strongest first, until their SINRs reach $(1-\epsilon)\Gamma_{k}$, then
+stop. The best AP is always included, so $m_{k}\ge1$.}
+
+\section{Theoretical guarantee}
+Define the \emph{captured-information ratio} and the \emph{information surplus} (the normalized rate
+the cluster leaves outside, eq.~(26) of \cite{haider2026vtc}):
+\begin{equation}
+\kappa_{k}=\frac{\Gamma_{\Sk}}{\Gamma_{k}},\qquad
+\Delta_{k}=\frac{\Gamma_{k}-\Gamma_{\Sk}}{(1+\Gamma_{\Sk})(1+\Gamma_{k})},\qquad
+\Gamma_{\Sk}=\sum_{l\in\Sk}\gamma_{l,k}.
+\label{eq:kapdel}
+\end{equation}
+\vexp{$\kappa_k\in[0,1]$ is the fraction of SINR the cluster keeps; $\Delta_k\ge0$ the information lost outside the cluster; $\Gamma_{\Sk}$ the cluster SINR.}%
+{Here $\kappa_{k}$ is the fraction of the total SINR the cluster keeps ($\kappa_{k}=1$ means nothing
+is lost), $\Gamma_{\Sk}$ is the SINR summed over the serving APs only, and $\Delta_{k}$ is the
+(small) amount of rate the user loses by not using every AP. P1 is designed to make $\kappa_{k}$
+large and $\Delta_{k}$ small.}
+By construction \eqref{eq:p1} gives $\Gamma_{\Sk}\ge(1-\epsilon)\Gamma_{k}$, i.e.\ $\kappa_{k}\ge
+1-\epsilon$. This yields a per-user bound on the surplus:
+\begin{propbox}
+\textbf{Proposition (surplus bound).} For the P1 cluster \eqref{eq:p1},
+\begin{equation}
+\kappa_{k}\ge 1-\epsilon
+\qquad\Longrightarrow\qquad
+\Delta_{k}\ \le\ \frac{\epsilon}{\,1+(1-\epsilon)\Gamma_{k}\,}.
+\label{eq:prop}
+\end{equation}
+\emph{Proof.} From $\Gamma_{\Sk}\ge(1-\epsilon)\Gamma_{k}$ we have $\Gamma_{k}-\Gamma_{\Sk}\le
+\epsilon\Gamma_{k}$ and $1+\Gamma_{\Sk}\ge 1+(1-\epsilon)\Gamma_{k}$. Substituting in
+\eqref{eq:kapdel} and using $1+\Gamma_{k}\ge\Gamma_{k}$,
+\[
+\Delta_{k}\le\frac{\epsilon\Gamma_{k}}{\big(1+(1-\epsilon)\Gamma_{k}\big)(1+\Gamma_{k})}
+\le\frac{\epsilon\Gamma_{k}}{\big(1+(1-\epsilon)\Gamma_{k}\big)\Gamma_{k}}
+=\frac{\epsilon}{1+(1-\epsilon)\Gamma_{k}}.\qquad\blacksquare
+\]
+\end{propbox}
+\vexp{$\epsilon$ is the tolerance from \eqref{eq:p1}; $\Gamma_k$ the total SINR.}%
+{\textbf{What this means in simple words:} the user never loses more than
+$\epsilon/(1+(1-\epsilon)\Gamma_{k})$ of its rate by using the small cluster instead of all APs, and
+this bound \emph{shrinks} as the user's SINR $\Gamma_{k}$ grows. So one knob $\epsilon$ directly
+controls the worst-case information loss --- a guarantee that CN \eqref{eq:cn} and IR \eqref{eq:ir}
+do not provide.}
+
+\section{Cluster-size behaviour and comparison}
+The size $m_{k}$ in \eqref{eq:p1} depends on how the SINR is spread over the APs: if one AP dominates
+(far-field user with a single strong link) few APs reach $(1-\epsilon)\Gamma_{k}$, so $m_{k}$ is
+small; if the useful SINR is spread over several nearby APs (near-field user) $m_{k}$ is larger.
+Hence P1 \emph{adapts} the cluster to the user's geometry. Empirically (our study):
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+\item \textbf{Size:} $|\Sk^{\mathrm{CN}}|<|\Sk^{\mathrm{P1}}|<|\Sk^{\mathrm{IR}}|$ at high SNR
+      ($\approx1.4$ vs $\approx2.0$ vs up to $3.6$).
+\item \textbf{Stability:} $|\Sk^{\mathrm{P1}}|$ is \emph{flat in SNR} (it is a ratio target), whereas
+      $|\Sk^{\mathrm{IR}}|$ \emph{grows with SNR} (absolute threshold) --- so IR's fronthaul grows
+      while P1's stays bounded.
+\item \textbf{User-type adaptivity:} P1 gives near-field users a slightly larger cluster than
+      far-field users; CN treats both alike and IR over-serves near-field users.
+\end{itemize}
+
+\section{Benefits}
+\begin{itemize}[leftmargin=1.4em,itemsep=1pt]
+\item \textbf{Provable guarantee:} one knob $\epsilon$ bounds the per-user information loss
+      \eqref{eq:prop}; neither CN nor IR offers this.
+\item \textbf{Detector-aware:} P1 uses the post-combining SINR \eqref{eq:sinr}, which already contains
+      interference and estimation error, unlike CN (strength only) and IR (no interference).
+\item \textbf{Bounded, stable fronthaul:} the size target is a \emph{ratio}, so the cluster does not
+      grow with SNR (unlike IR).
+\item \textbf{Geometry-adaptive} cluster sizing (near-/far-field) and better AP load balance.
+\item \textbf{Performance:} matches CN and clearly beats IR in fronthaul; on simple detectors
+      (linear, SIC, list-SIC) it attains the lowest BER at high SNR. (On the cross-AP list detector
+      all rules coincide, so the gain there is in fronthaul/interpretability, not BER.)
+\end{itemize}
+
+\section{Novelty and prior work}
+Fraction/threshold AP selection on \emph{large-scale fading} is known: dynamic cooperation
+clustering and largest-large-scale-fading selection \cite{bjornson2020scalable,ngo2018totalenergy},
+user-centric clustering \cite{buzzi2017usercentric,interdonato2019ubiquitous}, and rate-threshold
+clustering \cite{mashdour2024clustering}. \textbf{What is new in P1} is: (i) the selection criterion
+is the \emph{post-combining per-AP SINR} \eqref{eq:sinr} (interference- and estimation-error aware),
+not channel norm or an interference-free rate; and (ii) the cluster is sized by covering a fraction
+$(1-\epsilon)$ of the \emph{total SINR} \eqref{eq:p1}, which yields the \emph{provable
+information-surplus bound} \eqref{eq:prop} linking the single knob $\epsilon$ to the worst-case rate
+loss. To our knowledge this SINR-coverage criterion with a surplus guarantee has not been proposed
+for cell-free clustering; it should be positioned against \cite{bjornson2020scalable,ngo2018totalenergy,
+mashdour2024clustering} and verified with a final literature check before claiming priority.
+
+\begin{keybox}
+\textbf{Honest scope.} The information-loss guarantee \eqref{eq:prop} is exact under the
+SINRs-add model \eqref{eq:total}. End-to-end, P1 matches channel-norm clustering on the proposed
+cross-AP list detector (the detector absorbs the clustering choice) and its advantage there is
+\emph{bounded fronthaul and interpretability}; its clearest gains are the surplus guarantee, the
+fronthaul saving over IR, and lower BER on the simpler detectors. The clustering step costs more
+computation than CN (it needs the per-AP SINRs), which should be reported.
+\end{keybox}
+
+\begin{thebibliography}{99}\small
+\bibitem{ngo2017cellfree} H.~Q.~Ngo \emph{et al.}, ``Cell-free massive MIMO versus small cells,'' \emph{IEEE Trans. Wireless Commun.}, 16(3):1834--1850, 2017.
+\bibitem{ngo2018totalenergy} H.~Q.~Ngo \emph{et al.}, ``On the total energy efficiency of cell-free massive MIMO,'' \emph{IEEE Trans. Green Commun. Netw.}, 2(1):25--39, 2018.
+\bibitem{bjornson2020scalable} E.~Bj\"ornson and L.~Sanguinetti, ``Scalable cell-free massive MIMO systems,'' \emph{IEEE Trans. Commun.}, 68(7):4247--4261, 2020.
+\bibitem{interdonato2019ubiquitous} G.~Interdonato \emph{et al.}, ``Ubiquitous cell-free massive MIMO communications,'' \emph{EURASIP J. Wireless Commun. Netw.}, 2019:197, 2019.
+\bibitem{buzzi2017usercentric} S.~Buzzi and C.~D'Andrea, ``Cell-free massive MIMO: User-centric approach,'' \emph{IEEE Wireless Commun. Lett.}, 6(6):706--709, 2017.
+\bibitem{nayebi2016lsfd} E.~Nayebi \emph{et al.}, ``Performance of cell-free massive MIMO systems with MMSE and LSFD receivers,'' in \emph{Proc. Asilomar}, 2016, pp.~203--207.
+\bibitem{mashdour2024clustering} S.~Mashdour, R.~C.~de~Lamare, and J.~P.~S.~H.~Lima, ``Clustering and resource allocation for cell-free massive MIMO systems,'' arXiv:2404.18032, 2024 (verify exact title/venue).
+\bibitem{cui2022channel} M.~Cui and L.~Dai, ``Channel estimation for extremely large-scale MIMO: Far-field or near-field?'' \emph{IEEE Trans. Commun.}, 70(4):2663--2677, 2022.
+\bibitem{haider2026icassp} N.~Haider and R.~C.~de~Lamare, ``Cross-AP list-based interference cancellation for near-field cell-free XL-MIMO,'' submitted to IEEE ICASSP, 2026.
+\bibitem{haider2026vtc} N.~Haider and R.~C.~de~Lamare, ``Cross-AP channel estimation and interference cancellation for near-field cell-free XL-MIMO,'' submitted to IEEE VTC, 2026.
+\bibitem{haider2026wcl} N.~Haider and R.~C.~de~Lamare, ``Iterative interference cancellation for mixed near- and far-field XL-MIMO,'' \emph{IEEE WCL}, 15:5323--5327, 2026.
+\end{thebibliography}
+\end{document}
