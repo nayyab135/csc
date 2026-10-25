@@ -1,0 +1,142 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.75in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\usepackage{parskip}
+\setlist{nosep,leftmargin=1.4em}
+\newtcolorbox{keybox}[1][]{colback=blue!4,colframe=blue!45,boxrule=0.6pt,arc=2pt,
+  left=7pt,right=7pt,top=5pt,bottom=5pt,#1}
+\newtcolorbox{ideabox}[1][]{colback=green!5,colframe=green!50!black,boxrule=0.6pt,arc=2pt,
+  left=7pt,right=7pt,top=5pt,bottom=5pt,#1}
+\title{\vspace{-2.2em}\textbf{The difference co-array in the near field:\\ why it is weaker here, and how it could be made to work}}
+\author{}
+\date{}
+\begin{document}
+\maketitle
+\vspace{-3.2em}
+
+\section*{Page 1 --- Why the difference co-array is not effective in the near field}
+
+\textbf{What the difference co-array assumes.} The whole trick of the difference co-array
+rests on one fact: for a signal arriving as a \emph{flat} (plane) wave, the phase an antenna sees
+is a \emph{straight-line} function of its position,
+\[
+\phi_m \;=\; \frac{2\pi}{\lambda}\, x_m \sin\theta ,
+\]
+where $x_m$ is the position of antenna $m$, $\lambda$ the wavelength, and $\theta$ the arrival
+angle. When you form the covariance of the received signal, every entry depends only on the
+\emph{difference} $x_m - x_n$:
+\[
+[\mathbf{R}]_{m,n} \;\propto\; e^{\,j\frac{2\pi}{\lambda}(x_m - x_n)\sin\theta}.
+\]
+Because only the difference matters, two physical antennas at $x_m$ and $x_n$ behave exactly like
+one \emph{virtual} antenna sitting at $x_m - x_n$. That is how a handful of real antennas generate a
+much longer ``virtual'' array. \textbf{This only works because the phase is linear in position.}
+
+\begin{keybox}
+\textbf{The near-field problem in one line.} In the near field the wavefront is \emph{curved}, not
+flat, so the phase is \emph{no longer a straight line} in $x_m$ --- it has an extra \emph{squared}
+term that depends on the user's \emph{distance} (range), not just the angle:
+\[
+\phi_m \;\approx\; \frac{2\pi}{\lambda}\Big(\underbrace{x_m\sin\theta}_{\text{linear: angle}}
+\;-\; \underbrace{\tfrac{x_m^{2}\cos^{2}\theta}{2r}}_{\text{quadratic: range}}\Big).
+\]
+\end{keybox}
+
+\textbf{Why that breaks the virtual array.} Put that phase into the covariance. The entry
+$[\mathbf{R}]_{m,n}$ now depends on $x_m^{2}-x_n^{2}$ as well as $x_m-x_n$. The term
+$x_m^{2}-x_n^{2}=(x_m-x_n)(x_m+x_n)$ mixes in the \emph{sum} $x_m+x_n$, so the covariance
+\emph{no longer} depends on the difference alone. The clean ``virtual antenna at $x_m-x_n$''
+picture collapses:
+\begin{itemize}
+\item Two different physical pairs that share the same \emph{difference} $x_m-x_n$ no longer produce
+the \emph{same} virtual-antenna phase, because their \emph{sums} differ. The virtual array is no
+longer a uniform line array, so MUSIC and the other subspace methods built on it lose resolution or
+point to the wrong angle.
+\item Near-field antennas also receive \emph{different signal strengths} (an antenna closer to the
+user gets a stronger signal). The plane-wave model assumes equal strength across the array; that
+assumption fails too, which further corrupts the covariance the co-array is built from.
+\end{itemize}
+
+\textbf{What this means for us.} In our deployment the users that matter for the sparse array are the
+\emph{crowded, close-in} users --- exactly the ones on near-field links. For those users the
+difference co-array is operating outside the regime it was designed for, so it gives at best a rough
+angle and cannot, by itself, deliver the range. This is precisely what the simulation showed: the
+co-array helped a little (it is not useless), but it did not beat our ECA\,+\,CAPE, and on near-field
+links it behaves closer to a plain array than to its promised $N^2$-sized virtual array.
+
+\begin{keybox}
+\textbf{What ``set of sub-arrays'' means in Pinto \& de~Lamare's paper, and why one array is not
+enough.} After building the virtual array, Pinto and de~Lamare do \emph{not} run MUSIC on it
+directly. The reason is mathematical: the vectorized covariance $\mathbf{z}=\mathrm{vec}(\mathbf{R})$
+behaves like a \emph{single snapshot} of the virtual array, and a single snapshot makes all the
+users look perfectly \emph{coherent}. A subspace method then sees a \emph{rank-1} covariance and
+\emph{cannot separate} more than one user --- one virtual array alone fails.
+
+The fix is \emph{spatial smoothing}: slide a shorter window along the long virtual array to cut it
+into many \emph{overlapping sub-arrays}, and \emph{average} their individual covariances. Averaging
+over this \emph{set of sub-arrays} rebuilds the rank back up to the number of users, so the signal
+subspace can be recovered. So the ``set of sub-arrays'' is not a hardware choice and not several
+physical panels --- it is the collection of overlapping windows \emph{inside the one virtual array},
+and it is \emph{required}: with a single (full) sub-array the method mathematically collapses to
+rank~1 and resolves nothing.
+\end{keybox}
+
+\newpage
+\section*{Page 2 --- How the difference co-array could be made to work in the near field}
+
+The standard difference co-array is weak in the near field because it only uses the
+\emph{difference} lags and assumes a flat wavefront. The three ideas below change \emph{how} the
+co-array is formed or used so that it respects the near-field physics. (These are implemented in the
+updated code as Ideas~2, 3 and 4 and compared against the original CAPE.)
+
+\begin{ideabox}
+\textbf{Idea 2 --- Cross-AP (distributed) co-array.}
+Instead of building the virtual array \emph{inside one access point (AP)}, build it \emph{across
+APs}, from the combined set of all AP antenna positions. Because our CAPE technique already fuses
+several APs looking at the same user from different sides, the combined ``virtual aperture'' spans
+the whole room, not one small panel. \emph{How it dodges the near-field problem:} a single large
+panel is what makes the wavefront look curved; many \emph{small} panels spread across the room each
+see an almost-flat wavefront, yet together they localise the user by where the angles cross. The APs
+are \emph{not} phase-locked to each other, so the per-AP spectra are combined in the \emph{power}
+(non-coherent) domain, not coherently. \emph{Benefit:} resolution set by the \emph{network} size,
+not the panel size.
+\end{ideabox}
+
+\begin{ideabox}
+\textbf{Idea 3 --- Joint sum-and-difference co-array.}
+The near-field phase has \emph{both} a linear (angle) part and a squared (range) part, and the
+squared part naturally produces \emph{sum} lags $x_m+x_n$ --- the very lags the ordinary difference
+co-array throws away. Idea~3 \emph{keeps both}: it builds the difference co-array from the usual
+covariance \emph{and} a sum co-array from the complementary moment, then lets \emph{both} sets of
+angles propose user positions. \emph{How it dodges the near-field problem:} instead of fighting the
+sum term, it \emph{uses} it --- the sum lags are the ones that carry the range information, so
+difference\,$+$\,sum gives angle \emph{and} range from the same data. \emph{Caveat built into the
+code:} the sum co-array only carries information when the data is not perfectly circular; with the
+deterministic training pilots we use it does carry structure, but with purely random QPSK symbols
+the sum part averages to zero --- so Idea~3 helps most during pilot-based estimation.
+\end{ideabox}
+
+\begin{ideabox}
+\textbf{Idea 4 --- Hybrid-field reconfigurable co-array.}
+Our network is \emph{mixed}: some AP--user links are near-field (close users) and some are far-field
+(distant users). The difference co-array is \emph{exactly valid} on the far-field links and
+\emph{invalid} on the near-field ones --- so do not apply the same processing to both. Idea~4
+\emph{switches per link}: on a far-field link it uses the full difference co-array with a plane-wave
+(angle-only) model; on a near-field link it uses the symmetric part of the array with a
+\emph{range-aware} search. The switch uses the Rayleigh-distance test we already compute for every
+link. \emph{How it dodges the near-field problem:} each link is processed with the model that is
+actually correct for it, so the co-array is never used where it is invalid.
+\end{ideabox}
+
+\textbf{Summary.} The one-line reason the difference co-array underperforms here is that it assumes a
+flat wavefront, while our close-in users produce curved wavefronts whose phase carries an extra
+range-dependent (squared) term. The three ideas address this in three different ways: Idea~2 makes
+every panel small enough that the wavefront looks flat again; Idea~3 keeps the sum lags that the
+curvature produces instead of discarding them; Idea~4 applies the co-array only on the links where it
+is valid. The updated code implements all three and plots them against the original ECA\,+\,CAPE so
+the gain (or loss) of each can be read directly.
+
+\end{document}
