@@ -2927,7 +2927,7 @@ parfor ns = 1:nSetE
         end
     end
     EN_nmse(:, :, :, ns) = s_nmse;  EN_be(:, :, :, :, ns) = s_be;
-    EN_sum(:, :, :, ns) = s_sum;    EN_loc(:, :, :, ns) = s_loc;
+    EN_sum(:, :, :, :, ns) = s_sum;    EN_loc(:, :, :, ns) = s_loc;
     fprintf('  equal-N study setup %d/%d done\n', ns, nSetE);
 end
 end
