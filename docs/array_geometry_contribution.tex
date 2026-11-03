@@ -1,0 +1,526 @@
+\documentclass[11pt]{article}
+\usepackage[margin=0.85in]{geometry}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{xcolor}
+\usepackage[most]{tcolorbox}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{parskip}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black}
+\setlist{nosep,leftmargin=1.5em}
+
+\newtcolorbox{keybox}[1][]{colback=blue!4,colframe=blue!45,boxrule=0.6pt,arc=2pt,
+  left=7pt,right=7pt,top=5pt,bottom=5pt,#1}
+\newtcolorbox{ideabox}[1][]{colback=green!5,colframe=green!50!black,boxrule=0.8pt,arc=2pt,
+  left=7pt,right=7pt,top=6pt,bottom=6pt,#1}
+\newtcolorbox{warnbox}[1][]{colback=red!4,colframe=red!50!black,boxrule=0.6pt,arc=2pt,
+  left=7pt,right=7pt,top=5pt,bottom=5pt,#1}
+
+\title{\vspace{-2.4em}\textbf{A New Sparse Array Geometry for\\ Near-Field Cell-Free XL-MIMO}\\[0.3em]
+\large What the four group papers do, why our current array is not enough,\\ and four geometry ideas that could be a real contribution}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-3em}
+
+\section{Purpose of this document}
+
+Your professor's message was: the symmetric nested array is fine, but it is \emph{not a
+contribution}. Symmetric co-arrays already exist. The contribution has to be in \textbf{how we
+arrange the antennas} --- the array geometry itself. He pointed you at four papers from the group.
+
+This document does four things, in simple English:
+\begin{enumerate}
+\item Explains what each of the four papers actually does.
+\item Explains \emph{why} our current symmetric array performs the same as the standard difference
+co-array (the result you observed) --- there is a concrete technical reason.
+\item Explains what the near field really demands from an array geometry (the mathematics, step by
+step, with every symbol defined).
+\item Proposes \textbf{four new geometry ideas}, with an honest assessment of which one is the real
+contribution and what the risks are.
+\end{enumerate}
+
+\section{What the four papers do}
+
+\subsection{Paper 1 --- Pinto \& de Lamare, EUSIPCO 2023 (super-resolution arrays for multiuser MIMO)}
+
+This is the paper your professor originally pointed you to. In plain words:
+\begin{itemize}
+\item Uplink of a \emph{single-cell} multiuser MIMO system. The base station uses a sparse array ---
+either a two-level nested array (TLNA) or a coprime array (CPA).
+\item They take the received covariance matrix $\mathbf{R}_x$, vectorize it
+($\mathbf{v}=\mathrm{vec}(\mathbf{R}_x)$), remove duplicate entries, and sort them. This produces a
+\emph{virtual} (difference co-array) array with far more sensors than the physical array.
+\item They then apply \emph{spatial smoothing} to make the covariance full rank again, and run
+\textbf{MMSE} and \textbf{ordered successive interference cancellation (OSIC)} receivers on the
+enlarged virtual data.
+\item \textbf{Headline result:} a sparse array with $M=8$ physical antennas matches or beats a
+uniform array with $M=16$ antennas, in both achievable sum-rate and bit error rate. Half the
+hardware, same performance.
+\end{itemize}
+
+\begin{warnbox}
+\textbf{Important limitation for us:} this paper assumes a \emph{far-field}, single-path,
+line-of-sight-style channel $\mathbf{h}_k=g_k\,\mathbf{a}(\theta_k)$, with no scattering and a
+single cell. There is no near field and no distributed access points. So it cannot be used in our
+scenario unchanged --- which is exactly the gap we are trying to fill.
+\end{warnbox}
+
+\subsection{Paper 2 --- Leite, de Lamare, Zakharov, Liu \& Haardt, 2024 (DOA with sparse subarrays)}
+
+This is the most relevant paper to a \emph{cell-free} system, and I think it is the one the professor
+most wants you to absorb.
+\begin{itemize}
+\item It studies arrays that are broken into \textbf{subarrays}. Two families are defined:
+  \begin{itemize}
+  \item \textbf{Type-I}: take one known sparse geometry and \emph{cut} it into pieces.
+  \item \textbf{Type-II}: take one reference sparse subarray and \emph{repeat} it (translated copies)
+  --- a ``multiple invariance'' structure.
+  \end{itemize}
+\item The key practical assumption is \textbf{partial calibration}: inside each subarray the sensors
+are phase-synchronised, but the \emph{relative phase between subarrays is unknown}.
+\item Algorithms \textbf{GCA-MUSIC} and \textbf{GCA-rMUSIC}: build the difference co-array of
+\emph{each} subarray, spatially smooth it, get each subarray's noise subspace, and then combine them
+by \emph{intersecting} the noise subspaces using projection onto convex sets (POCS). This is a
+\emph{non-coherent} combination --- no phase synchronisation needed.
+\item \textbf{Theorem 1} gives the total degrees of freedom of a type-II array:
+\[
+\mathrm{DoF}\;=\;L(\mathrm{sDoF}-1)+2(L-1)\mu+1 ,\qquad 1\le\mu\le\kappa,
+\]
+where $L$ is the number of subarrays, $\mathrm{sDoF}$ is the DoF of one subarray, $\mu$ is the
+normalised spacing between subarrays, and $\kappa$ is the aperture of one subarray. Example in the
+paper: $L=2$ subarrays of $7$ sensors ($N=14$ total) reach $\mathrm{DoF}=85$.
+\item They can estimate \emph{more sources than sensors in each subarray}.
+\end{itemize}
+
+\begin{keybox}
+\textbf{Why this matters enormously for us.} A cell-free network \emph{is} a sparse subarray system:
+each access point (AP) is a subarray, and the APs are \emph{not} phase-synchronised with each other
+--- exactly the ``partially calibrated'' case. Our CAPE technique already fuses APs non-coherently,
+which is the same philosophy as GCA-MUSIC. So this paper is the natural theoretical home for our
+work. The gap: Leite et al.\ assume the subarrays are \emph{collinear} and are \emph{translated
+copies} of one another, and the whole treatment is \emph{far-field}. Our APs are scattered in two
+dimensions and our users are in the near field.
+\end{keybox}
+
+\subsection{Papers 3 and 4 --- the MISC family (the array-design recipe)}
+
+These two are the ones that show you \emph{how this group designs a new array geometry}. They are the
+template you should copy.
+
+\textbf{Paper 3 --- Shi, Li \& de Lamare, IEEE SPL 2022 (IMISC).}
+\begin{itemize}
+\item MISC = ``maximum inter-element spacing constraint''. The idea: do not describe the array by its
+positions, describe it by its \textbf{inter-element spacing (IES) set} --- the list of gaps between
+neighbouring antennas.
+\item The IES set is fixed by just \emph{two} numbers: the number of sensors $Q$ and the maximum
+allowed spacing $M$, with $M=4\lfloor (Q+2)/6\rfloor$.
+\item The resulting IMISC array is a concatenation of \textbf{six uniform sub-ULAs}, each with its
+own spacing.
+\item They derive in closed form the \textbf{uniform degrees of freedom} (uDOF) --- the length of the
+hole-free consecutive part of the difference co-array:
+$\mathrm{uDOF}_{\mathrm{IMISC}}\approx \tfrac{2Q^2}{3}-\tfrac{2Q}{3}-1$, i.e.\ order $2Q^2/3$,
+which beats the $4Q^2/7$ of the earlier arrays.
+\item They also derive the \textbf{weight function} $w(n)$ = the number of antenna pairs separated by
+exactly $n$ units. The first three values $w(1),w(2),w(3)$ dominate \textbf{mutual coupling} (MC).
+For IMISC: $w(1)=2$, $w(2)=2\lfloor (Q+2)/6\rfloor$ or $5$, $w(3)=1$ or $2$.
+\end{itemize}
+
+\textbf{Paper 4 --- Sheng, Lu, Li \& de Lamare, IEEE TCAS-II 2024 (EMISC).}
+\begin{itemize}
+\item Same recipe, pushed further. EMISC uses \textbf{seven} uniform sub-ULAs instead of six (an
+extra sub-ULA with spacing 3 is inserted and everything is re-optimised).
+\item uDOF: $\mathrm{uDOF}_{\mathrm{EMISC}}=-\tfrac{3L^2}{2}+(2K-1)L+7$ with
+$L=4\lfloor (K-4)/6\rfloor+4$ --- four more than IMISC.
+\item The real trick: the rearrangement makes $\boxed{w(1)=1}$ --- only \emph{one} pair of adjacent
+antennas in the whole array. Since $w(1)$ dominates mutual coupling, this gives the lowest coupling
+of the family. Ordering: $\mathrm{CL}_{\mathrm{EMISC}}<\mathrm{CL}_{\mathrm{IMISC}}<\mathrm{CL}_{\mathrm{MISC}}$.
+\end{itemize}
+
+\begin{keybox}
+\textbf{The recipe, extracted.} Every new-geometry paper in this group follows the same five steps:
+\begin{enumerate}
+\item Describe the array by an \textbf{IES set} (gaps), parameterised by a couple of integers.
+\item Build the array as a \textbf{concatenation of uniform sub-ULAs}.
+\item Prove which part of the difference co-array is \textbf{hole-free}, and get a
+\textbf{closed-form uDOF}.
+\item Derive the \textbf{weight function} $w(1),w(2),w(3)$ $\Rightarrow$ mutual coupling.
+\item Show you beat the previous arrays on \emph{both} uDOF \emph{and} coupling.
+\end{enumerate}
+If we want a contribution the professor will accept, our new array must come with these same five
+deliverables.
+\end{keybox}
+
+\section{Why our current symmetric array performs the same as the standard one}
+
+You observed that the symmetric near-field sparse array gives almost identical BER, sum-rate and
+NMSE to the standard difference co-array. That is not a coincidence or a bug. There are four
+concrete reasons:
+
+\begin{enumerate}
+\item \textbf{Both use the same estimator.} In our code, both geometries do exactly the same thing:
+difference-co-array MUSIC $\rightarrow$ angle estimate $\rightarrow$ a separate 1-D range search on
+the physical array $\rightarrow$ feed the position to CAPE. Changing the geometry from ``nested'' to
+``symmetric nested'' changes \emph{which lags exist}, but not \emph{what the algorithm extracts}. If
+the processing does not exploit the symmetry, the symmetry buys nothing.
+
+\item \textbf{The symmetric array is smaller.} At equal antenna count $N=24$, our symmetric nested
+array has an aperture of $4.20$\,m while the plain nested array has $7.75$\,m. Angular resolution
+scales with aperture, so we \emph{lost} resolution by symmetrising. Worse, the Rayleigh distance
+$d_R = 2D^2/\lambda$ shrinks with aperture, so the symmetric array sees a \emph{smaller near-field
+region} --- the opposite of what we want.
+
+\item \textbf{It has fewer virtual sensors.} At $N=24$: plain nested gives 311 distinct lags, our
+symmetric nested only 109. Symmetry \emph{wastes} degrees of freedom, because mirror pairs produce
+\emph{duplicate} difference lags (each lag is counted twice), which raises the weight function
+$w(n)$ and lowers uDOF.
+
+\item \textbf{The co-array never produces the range.} The near-field part of the problem --- the
+distance $r$ --- is recovered in our code by a one-dimensional search on the \emph{physical}
+observation, not by the virtual array. So the co-array contributes nothing to the specifically
+near-field part of the estimate.
+\end{enumerate}
+
+\begin{warnbox}
+\textbf{Conclusion.} ``Make it symmetric'' is a \emph{validity} fix, not a \emph{performance} fix. It
+stops the difference co-array from being mathematically wrong in the near field, but it gives up
+aperture and degrees of freedom to do so, and the two effects cancel. To get a real gain, the
+geometry must be designed so that the \emph{near-field information itself} (angle \emph{and} range)
+is carried by the virtual array --- and that is a genuine, unsolved design problem.
+\end{warnbox}
+
+\section{What the near field actually demands from a geometry}
+
+\subsection{The near-field phase, step by step}
+
+Let an antenna sit at position $x_m$ on a line (metres), and a user sit at distance $r$ (metres) and
+angle $\theta$. The exact distance from user to antenna $m$ is
+\begin{equation}
+r_m=\sqrt{r^2+x_m^2-2 r x_m\sin\theta}.
+\end{equation}
+Expanding this for $r$ larger than $x_m$ but not enormously larger (the Fresnel / near-field region):
+\begin{equation}
+r_m\;\approx\; r-x_m\sin\theta+\frac{x_m^2\cos^2\theta}{2r}.
+\end{equation}
+\emph{Here $r$ is the user distance, $\theta$ the angle, $x_m$ the antenna position.} The received
+phase at antenna $m$ is $-\tfrac{2\pi}{\lambda}r_m$, so dropping the common term $-\tfrac{2\pi}{\lambda}r$
+the array response is
+\begin{equation}
+a_m=\exp\!\big(j(\omega x_m+\psi x_m^2)\big),\qquad
+\omega \triangleq \frac{2\pi}{\lambda}\sin\theta,\qquad
+\psi \triangleq -\frac{\pi\cos^2\theta}{\lambda\, r}.
+\end{equation}
+\emph{Here $\lambda$ is the wavelength, $\omega$ is the ``angle parameter'' (linear in position) and
+$\psi$ is the ``range parameter'' (multiplies position \emph{squared}). In the far field $r\to\infty$
+so $\psi\to 0$ and only the linear term survives --- that is the classical case.}
+
+\subsection{Why the difference co-array breaks, in one equation}
+
+The covariance between antennas $m$ and $n$ for one user of power $\sigma^2$ is
+\begin{equation}
+[\mathbf{R}]_{m,n}=\sigma^2 a_m a_n^{*}
+=\sigma^2\exp\!\Big(j\big[\underbrace{\omega(x_m-x_n)}_{\text{difference}}
++\psi\underbrace{(x_m^2-x_n^2)}_{=(x_m-x_n)(x_m+x_n)}\big]\Big).
+\end{equation}
+Write $d=x_m-x_n$ (the \textbf{difference lag}) and $s=x_m+x_n$ (the \textbf{sum lag}). Then
+\begin{equation}
+\boxed{\;[\mathbf{R}]_{m,n}=\sigma^2\exp\!\big(j[\,\omega d+\psi\, d\, s\,]\big).\;}
+\end{equation}
+\emph{Read this carefully, it is the whole story:} the entry depends on the difference lag $d$
+\textbf{and} on the product $d\,s$. Two antenna pairs with the \emph{same} difference $d$ but
+\emph{different} sums $s$ give \emph{different} phases. That is precisely why you cannot merge them
+into one ``virtual sensor'' --- the classical difference co-array assumption fails.
+
+\subsection{The two escapes, and the tension between them}
+
+\textbf{Escape 1 --- symmetric pairs give clean angle.} If the array contains both $+x$ and $-x$,
+then the pair $(m,n)=(x,-x)$ has $s=0$, so the quadratic term vanishes:
+\begin{equation}
+[\mathbf{R}]_{x,-x}=\sigma^2\exp(j\,\omega\,2x).
+\end{equation}
+This is a pure far-field-like term with difference lag $2x$. \emph{This is the real reason symmetric
+arrays are used in the near field}: the mirror pairs give an angle-only virtual array, immune to
+range curvature.
+
+\textbf{The catch:} the set of clean angle lags is $\{2x : x \text{ and } -x \text{ both present}\}$,
+i.e.\ \emph{twice the positive positions}. For this set to be hole-free (consecutive), the positive
+positions must themselves be consecutive on a fine grid --- which means a \emph{dense}, small array.
+This is exactly why our symmetric nested array came out compact with a small aperture. \textbf{The
+requirement ``symmetric and hole-free'' fights the requirement ``large aperture''.}
+
+\textbf{Escape 2 --- the sum co-array carries the range.} Pairs with the same $d$ but different $s$
+differ in phase by $\psi d (s_1-s_2)$. That difference is \emph{pure range information}. So the
+\textbf{sum co-array} $\mathbb{S}=\{x_m+x_n\}$ is not a nuisance --- it is the resource that lets us
+estimate $r$. A good near-field geometry should make \emph{both} the difference co-array (for angle)
+and the sum co-array (for range) rich and hole-free.
+
+\subsection{The design requirements, collected}
+
+\begin{keybox}
+A sparse array for \textbf{near-field cell-free XL-MIMO} must satisfy, simultaneously:
+\begin{description}[leftmargin=3.2em,style=nextline]
+\item[\textbf{R1 Aperture (new!)}] $D\ \ge\ \sqrt{\lambda\, r_{\max}/2}$, so that users at distance
+up to $r_{\max}$ are genuinely inside the near field ($r<2D^2/\lambda$). \emph{No MISC-family paper
+has this constraint} --- they only cap the \emph{maximum} spacing. This is a two-sided problem:
+aperture big enough for near field, spacing small enough for coupling and ambiguity.
+\item[\textbf{R2 Angle DOF}] A long hole-free set of \emph{clean} angle lags (symmetric pairs,
+$s=0$).
+\item[\textbf{R3 Range DOF}] A rich, hole-free \emph{sum} co-array $\{x_m+x_n\}$, so range is
+observable from the virtual array rather than from a separate search.
+\item[\textbf{R4 Low coupling}] Small $w(1),w(2),w(3)$ --- ideally $w(1)=1$, the EMISC trick.
+\item[\textbf{R5 Ambiguity}] Grating lobes controlled --- every sparse array creates them.
+\item[\textbf{R6 Distributed}] Across APs: partially calibrated (no phase sync), so fusion must be
+non-coherent, and the per-AP geometries should \emph{complement} each other.
+\end{description}
+\end{keybox}
+
+\section{Four geometry ideas}
+
+\subsection{Idea 1 (recommended) --- the Two-Scale Symmetric-Core MISC array (TS-MISC)}
+
+\begin{ideabox}
+\textbf{The structure.} Build the array from three functional parts instead of one:
+\begin{enumerate}
+\item A \textbf{small symmetric dense core} around the origin, on a \emph{quarter-wavelength}
+($\lambda/4$) grid: positions $\pm\{\tfrac{1}{2},1,\tfrac{3}{2},\dots\}$ in units of
+$d=\lambda/2$. Its mirror pairs produce a \emph{consecutive} set of clean angle lags (R2). It is
+cheap: only a handful of elements.
+\item A \textbf{sparse asymmetric outer pair of wings}, placed by the \textbf{EMISC IES rule}
+(sub-ULAs with prescribed gaps). The wings deliver the \textbf{aperture} (R1), the high
+difference-co-array uDOF, and they are placed so that $w(1)=1$ overall (R4).
+\item The \textbf{cross pairs} between core and wings have large, \emph{distinct} sum lags $s$, which
+is exactly what makes the \textbf{range} observable from the virtual array (R3).
+\end{enumerate}
+\textbf{Why it fixes our problem.} It separates the two fighting requirements instead of compromising
+between them: the \emph{core} is symmetric and dense (so the angle co-array is hole-free), the
+\emph{wings} are sparse and wide (so the aperture and near-field reach are large). Our current
+array tries to be symmetric \emph{everywhere}, which is why it ended up small and low-DOF.
+\end{ideabox}
+
+\textbf{What you would have to deliver} (the five MISC steps): a closed-form IES set parameterised by
+$(K, L, \text{core size})$; the position set; a proof of the hole-free part of the \emph{difference}
+co-array giving $\mathrm{uDOF}_{\mathrm{diff}}$; a proof of the hole-free part of the \emph{sum}
+co-array giving $\mathrm{uDOF}_{\mathrm{sum}}$ (this is the genuinely new quantity); and the weight
+function $w(1),w(2),w(3)$.
+
+\subsection{Idea 2 --- Distributed Co-Array Tiling across APs (the cell-free contribution)}
+
+\begin{ideabox}
+\textbf{The structure.} Stop designing \emph{one} array. Design the \textbf{set of $L$ AP arrays
+jointly}, so that the lags one AP is missing are supplied by another.
+\begin{itemize}
+\item Give AP $\ell$ its own IES set $\mathbb{S}_\ell$, chosen so that the \emph{union} of the
+per-AP difference co-arrays, $\bigcup_\ell \mathbb{D}_\ell$, is hole-free and long --- while each
+individual AP stays small and cheap.
+\item Because APs are not phase-synchronised, the combination must be \emph{non-coherent}: exactly
+the GCA-MUSIC / POCS machinery of Paper 2, and exactly what our CAPE already does.
+\item This generalises Leite et al.'s type-II arrays, where every subarray is an identical
+\emph{translated copy}. Here the subarrays are deliberately \emph{different} and
+\emph{complementary}, and they are not collinear.
+\end{itemize}
+\textbf{Why it is a strong contribution.} It is the first array-geometry design where the unit of
+design is the \emph{network}, not the panel. It fits our system perfectly and it is a natural
+``type-III'' extension of the group's own framework.
+\end{ideabox}
+
+\subsection{Idea 3 --- RETRACTED, and the lemma that replaces it}
+
+I originally proposed a ``half-shifted interleaved symmetric array'': put half the elements on the
+integer grid and half on a half-integer grid, so that the clean angle lags $2x$ would fill both odd
+and even values. \textbf{I tested this numerically and it is wrong}, so I am retracting it rather
+than leaving it in. The reason is a simple scaling argument: if every position is an integer
+multiple of \emph{some} unit $u$, then $2x$ is an \emph{even} multiple of $u$ no matter what $u$ is.
+Shifting the grid by half a unit just renames the unit; it creates no new lags. Measured on a
+$\lambda/4$ grid, the ``clean-angle'' run length stayed at $1$ for every array I tried, including
+the half-shifted ones.
+
+What survives is a cleaner and more useful statement:
+
+\begin{keybox}
+\textbf{Lemma (mirror-pair bottleneck).} The clean angle co-array --- the set of lags obtained from
+mirror pairs, $\{\,2x : x\in\mathbb{S},\ -x\in\mathbb{S}\,\}$ --- is hole-free \textbf{if and only
+if the positive half of the array is a contiguous ULA}.
+
+\emph{Proof sketch:} the clean lag set is exactly $2\mathbb{S}^{+}$ where $\mathbb{S}^{+}$ is the
+positive half; $2\mathbb{S}^{+}$ is consecutive on the $2u$ lattice iff $\mathbb{S}^{+}$ is
+consecutive on the $u$ lattice. $\square$
+\end{keybox}
+
+\textbf{Why this lemma matters.} It says the tension in Section 4.3 is not an artefact of a bad
+design --- it is a \emph{structural law}. You cannot have a hole-free clean-angle co-array without a
+dense symmetric core. Any near-field sparse array must therefore \emph{spend} some elements on a
+dense core and buy aperture with the rest. That is the real justification for the core-plus-wings
+structure of Idea 1, and stating and proving this lemma is itself a small theoretical contribution.
+
+\subsection{Idea 4 --- Curvature-Matched Multi-Scale (geometric-progression) array}
+
+\begin{ideabox}
+\textbf{The observation.} Range information lives in the \emph{curvature} of the phase across the
+array --- the $\psi x^2$ term. Curvature is best measured when you have element separations at
+\emph{many different scales}, not one.
+
+\textbf{The structure.} Choose the IES set as a \emph{geometric} progression,
+$\{1,2,4,8,\dots\}\times d$ (possibly mirrored), rather than the arithmetic progressions used by
+nested, coprime and MISC arrays. This samples the quadratic phase term at many scales with very few
+elements, making the range parameter $\psi$ well-conditioned.
+\end{ideabox}
+
+\textbf{Honest caveat.} Geometric/fractal spacings give an excellent spread of \emph{sum} lags but a
+\emph{hole-riddled} difference co-array, so angle DOF suffers. This idea is best used as the
+\emph{wing} rule inside Idea 1, not on its own.
+
+\section{I tested Idea 1 numerically --- here is the honest result}
+
+Before asking you to invest in this, I built a prototype TS-MISC array and measured it against the
+alternatives at \textbf{equal antenna count $N=24$}. All lengths use $\lambda=0.1$\,m. ``uDOF'' is
+the longest hole-free run of the co-array on the $\lambda/2$ lattice; $w(1)$ counts adjacent pairs
+(mutual coupling); $d_R=2D^2/\lambda$ is the Rayleigh distance (near-field reach).
+
+\begin{center}
+\begin{tabular}{@{}lrrrrrrc@{}}
+\toprule
+\textbf{Array} & \textbf{$N$} & \textbf{$D$ [m]} & \textbf{$d_R$ [m]} & \textbf{uDOF$_{\rm diff}$} &
+\textbf{uDOF$_{\rm sum}$} & \textbf{$w(1)$} & \textbf{sym.?} \\
+\midrule
+Dense ULA               & 24 & 1.15 & 26   & 47  & 47  & 23 & yes \\
+Nested (standard)       & 24 & 7.75 & 1201 & \textbf{311} & 168 & 12 & no \\
+Symmetric nested (ours) & 24 & 4.20 & 353  & 99  & 99  & 12 & yes \\
+TS-MISC prototype       & 24 & 7.60 & 1155 & 69  & 69  & \textbf{6} & core \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{warnbox}
+\textbf{Read this honestly: my prototype does not yet win.} On the headline metric
+(uDOF$_{\rm diff}$) the plain nested array is far ahead --- $311$ versus my $69$. I am not going to
+present the idea as proven when the numbers say otherwise.
+
+What the table \emph{does} establish is worth having:
+\begin{itemize}
+\item \textbf{Our current symmetric nested array is confirmed as a bad trade.} Symmetrising cost us
+$311\rightarrow 99$ in uDOF \emph{and} $7.75\rightarrow 4.20$\,m of aperture. That is the measured
+explanation for why it performs the same as the standard co-array --- it gave up two things to gain
+one.
+\item \textbf{The plain nested array has \emph{zero} clean-angle lags} (it is not symmetric at all),
+so despite its uDOF of 311 it is not formally valid in the near field. The two baselines each fail a
+different requirement.
+\item \textbf{The core-plus-wings structure does deliver on two of the four axes:} it keeps nearly
+the full aperture ($7.60$ vs $7.75$\,m, so near-field reach is preserved) and it \textbf{halves the
+mutual coupling} ($w(1)=6$ versus $12$) while retaining a symmetric core.
+\end{itemize}
+\textbf{The open problem --- and this is exactly where the contribution lies --- is the wing
+placement rule.} I placed the wings by hand; a real design must derive them from an EMISC-style IES
+set so that uDOF climbs back toward (and past) $311$ while $w(1)$ stays at $6$ or below and the core
+stays symmetric. \emph{That derivation is the research work, and it is not yet done.}
+\end{warnbox}
+
+\section{Which one to choose, and the honest risks}
+
+\begin{center}
+\begin{tabular}{@{}p{3.1cm}p{3.4cm}p{3.4cm}p{3.6cm}@{}}
+\toprule
+\textbf{Idea} & \textbf{Main strength} & \textbf{Main weakness} & \textbf{Novelty risk} \\
+\midrule
+1. TS-MISC core+wings & Fixes the exact problem we measured; follows the group's recipe & Needs two
+new proofs (diff \emph{and} sum uDOF) & Medium: near-field sparse arrays exist, but not via
+IES/MISC construction \\
+2. Distributed tiling & Unique to cell-free; matches CAPE and Paper 2 & Harder to analyse; needs a
+network-level DOF theorem & \textbf{Low risk: genuinely unexplored} \\
+3. \emph{(retracted)} & Replaced by the mirror-pair lemma & --- & Idea was wrong; lemma stands \\
+4. Multi-scale wings & Best range conditioning & Poor angle DOF alone & Medium: fractal arrays exist
+(far-field) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{keybox}
+\textbf{Recommendation.} Make \textbf{Idea 1 the array contribution} and \textbf{Idea 2 the system
+contribution}, and use Idea 3/4 as design rules \emph{inside} Idea 1. That gives a paper with two
+linked novelties:
+\begin{itemize}
+\item a new \emph{single-AP} geometry (TS-MISC) that is the first MISC-style array designed for the
+near field, with a closed-form IES set, a \emph{joint} difference-and-sum uDOF analysis, and a
+minimum-aperture criterion that no existing MISC paper has;
+\item a new \emph{network-level} design (distributed co-array tiling) where the APs' geometries are
+complementary and fused non-coherently --- a true ``type-III'' sparse subarray.
+\end{itemize}
+\end{keybox}
+
+\begin{warnbox}
+\textbf{Novelty must be verified, not assumed.} My literature check found: (i) near-field sparse
+arrays \emph{do} exist --- in particular a design based on symmetric augmentation of three ULAs for
+near-field DOA; (ii) sum--difference co-array designs exist but are \emph{far-field}; (iii) I found
+\emph{no} work combining the near-field spherical model with a joint hole-free sum--difference
+design, and \emph{no} work designing co-array geometry across distributed/cell-free APs. Before
+claiming novelty, search specifically for: ``near-field sum-difference coarray array design'',
+``symmetric nested array near-field DOF'', and ``sparse array design cell-free''.
+\end{warnbox}
+
+\section{How we would prove it works, in our code}
+
+The array contribution has to be measured with array-level metrics first, and only then with
+communication metrics:
+\begin{enumerate}
+\item \textbf{Geometry metrics} (no simulation needed): $\mathrm{uDOF}_{\mathrm{diff}}$,
+$\mathrm{uDOF}_{\mathrm{sum}}$, aperture $D$, Rayleigh distance $2D^2/\lambda$, near-field link
+fraction, and the weight function $w(1),w(2),w(3)$ (coupling). Compare against ULA, nested, coprime,
+ECA, MISC, IMISC, EMISC at \emph{equal antenna count}.
+\item \textbf{Estimation metrics}: angle RMSE, range RMSE, channel NMSE, CAPE localisation error.
+\item \textbf{Communication metrics}: BER and sum rate for the four detectors, fronthaul and
+complexity.
+\end{enumerate}
+
+\textbf{Two code issues to fix at the same time} (you asked why they happen):
+\begin{itemize}
+\item \emph{Symmetric array ties the standard co-array} --- explained in Section 3: same estimator,
+smaller aperture, fewer lags, and range never comes from the co-array. Fixing it requires the new
+geometry \emph{and} an estimator that uses the sum co-array for range.
+\item \emph{Cross-AP list detection equals plain list detection under estimated CSI} --- the most
+likely cause is that CAPE has already consumed the cross-AP diversity (all APs are handed the same
+fused position, so their channel estimates are correlated), leaving the cross-AP step no independent
+information to exploit; a secondary cause is the list pruning threshold collapsing the list to a
+single survivor. Both are testable: print the average surviving list size, and compare cross-AP gain
+with CAPE on versus off.
+\end{itemize}
+
+\section{Suggested next step}
+
+\begin{enumerate}
+\item Fix the TS-MISC construction on paper: choose the core size, the wing IES rule, write the
+position set in closed form.
+\item Compute $\mathrm{uDOF}_{\mathrm{diff}}$, $\mathrm{uDOF}_{\mathrm{sum}}$ and $w(1),w(2),w(3)$
+numerically for $K=10\dots60$ and compare with nested / coprime / ECA / IMISC / EMISC.
+\item Only if the geometry numbers win, put it into the simulator and measure NMSE, BER, sum rate.
+\item In parallel, formulate the network-level (Idea 2) DOF statement, mirroring Theorem 1 of
+Paper 2.
+\end{enumerate}
+
+\begin{thebibliography}{9}
+\bibitem{pinto2023} S. F. B. Pinto and R. C. de Lamare, ``Multiuser multiple-antenna wireless
+communications systems based on super-resolution arrays,'' \emph{EUSIPCO}, 2023, pp. 1464--1468.
+\bibitem{leite2024} W. S. Leite, R. C. de Lamare, Y. Zakharov, W. Liu and M. Haardt, ``Direction of
+arrival estimation with sparse subarrays,'' arXiv:2409.00033, 2024.
+\bibitem{shi2022} W. Shi, Y. Li and R. C. de Lamare, ``Novel sparse array design based on the maximum
+inter-element spacing criterion,'' \emph{IEEE Signal Process. Lett.}, vol. 29, pp. 1754--1758, 2022.
+\bibitem{sheng2024} X. Sheng, D. Lu, Y. Li and R. C. de Lamare, ``Enhanced MISC-based sparse array
+with high uDOFs and low mutual coupling,'' \emph{IEEE Trans. Circuits Syst. II}, vol. 71, no. 2,
+pp. 972--976, 2024.
+\bibitem{pal2010} P. Pal and P. P. Vaidyanathan, ``Nested arrays: a novel approach to array
+processing with enhanced degrees of freedom,'' \emph{IEEE Trans. Signal Process.}, vol. 58, no. 8,
+pp. 4167--4181, 2010.
+\bibitem{zheng2019} Z. Zheng, W. Q. Wang, Y. Kong and Y. D. Zhang, ``MISC array: a new sparse array
+design achieving increased degrees of freedom and reduced mutual coupling effect,'' \emph{IEEE Trans.
+Signal Process.}, vol. 67, no. 7, pp. 1728--1741, 2019.
+\bibitem{liu2016} C. L. Liu and P. P. Vaidyanathan, ``Super nested arrays: linear sparse arrays with
+reduced mutual coupling --- Part I,'' \emph{IEEE Trans. Signal Process.}, vol. 64, no. 15,
+pp. 3997--4012, 2016.
+\bibitem{nfsparse} ``Near-field DOA estimation oriented sparse array design via symmetric
+augmentation of three ULAs,'' \emph{Digital Signal Processing}, 2024.
+\bibitem{sparseisac} ``Sparse MIMO for ISAC: new opportunities and challenges,'' arXiv:2406.12270,
+2024.
+\end{thebibliography}
+
+\end{document}
