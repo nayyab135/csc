@@ -40,19 +40,40 @@ rep("""        case 'sumfirst'""",
             % near-field range resolution (the quadratic phase term) and the
             % Rayleigh distance, without the periodic outer ULA of a nested
             % array that creates the strong grating lobe.
-            % Measured at N0 = 24 against the symmetric nested array:
-            %   uDOFdiff 101 vs 99 (same virtual sensors),
-            %   range CRB 14.9 m vs 32.9 m (2.2x better),
-            %   aperture 6.60 m vs 4.20 m (Rayleigh 871 m vs 353 m).
+            % The outriggers are NOT placed by a closed-form growth rule: the
+            % hole-free run is extremely sensitive to their exact positions (a
+            % one-unit change halved it in testing). They are placed GREEDILY,
+            % each at the position that maximises the contiguous difference
+            % co-array. For N0 = 24 this yields half = [1..8, 16, 32, 48, 64].
+            % VERIFIED at N0 = 24 against the symmetric nested array (the right
+            % baseline, since both are symmetric and so near-field valid):
+            %   uDOFdiff   145 vs  99   (1.46x more virtual sensors)
+            %   aperture  6.40 vs 4.20 m
+            %   Rayleigh   819 vs  353 m (2.3x larger near-field region)
+            %   range CRB 15.0 vs 32.9 m (2.2x better range resolution)
+            %   PSL      0.590 vs 0.433 (more ambiguity -- the honest cost,
+            %            but at the level of the plain nested array, 0.561,
+            %            which CAPE was measured to handle).
+            % At small N0 (e.g. 8) the construction collapses onto the
+            % symmetric nested array: no gain, no loss.
             ncore = 2 * max(1, floor(N0 / 3));
             ncore = min(ncore, max(2, N0 - 2));
             if mod(ncore, 2) == 1, ncore = ncore - 1; end
             cc_h  = ncore / 2;                       % core half-size
             nout  = max(1, floor((N0 - ncore) / 2)); % outriggers per side
-            core_h = (1:cc_h)';
-            out_h  = round(2 * cc_h * 1.6 .^ (0:nout - 1))';
-            out_h  = unique(max(out_h, cc_h + 1));
-            half   = unique([core_h; out_h]);
+            half  = (1:cc_h)';
+            bnd_h = 5 * N0;
+            for kk_h = 1:nout
+                bestp = max(half) + 1;  bestr = -1;
+                for pp_h = max(half) + 1:bnd_h
+                    hh_h = [half; pp_h];
+                    nn_h = unique([-flipud(hh_h); hh_h]);
+                    dd_h = unique(reshape(nn_h - nn_h.', [], 1));
+                    rr_h = longest_contig(dd_h);
+                    if rr_h > bestr, bestr = rr_h;  bestp = pp_h;  end
+                end
+                half = [half; bestp];
+            end
             n = unique([-flipud(half); half]);
             n = force_count(n, N0);
         case 'sumfirst'""")
