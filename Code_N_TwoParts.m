@@ -228,11 +228,16 @@ noisePow_dBm = -174 + 10 * log10(B) + 15;
 
 n_collinear_pairs = floor(K / 4);
 % [CODE N] PART 1 must be HYBRID (some users near-field, some far-field).
-% The old hardcoded 20 m exceeded r_max_NF = 0.9*d_Ray = 10.1 m for a
-% 16-element dense ULA, so the near-field window was EMPTY and every link
-% came out far-field (measured 0/32 NF pairs). Scale it to the aperture.
-r_min_NF = min(20, 0.35 * d_Ray);
-r_max_NF = min(0.9 * d_Ray, squareLen / 2);
+% Two bugs were fixed here:
+%  (a) r_min_NF was hardcoded to 20 m while r_max_NF was 10.1 m for a
+%      16-element dense ULA, so the window was EMPTY -> 0/32 NF pairs.
+%  (b) the near-field test uses the 3-D distance d3 = sqrt(hDiff^2 + dH^2),
+%      and the APs sit hDiff = 10 m above the users. A horizontal radius of
+%      10 m therefore still gives d3 = 14 m > d_Ray = 11.25 m, i.e. FAR
+%      field. The admissible HORIZONTAL radius is sqrt(d_Ray^2 - hDiff^2),
+%      which is only about 5 m for this aperture.
+r_max_NF = min(0.9 * sqrt(max(d_Ray ^ 2 - hDiff ^ 2, 1)), squareLen / 2);
+r_min_NF = max(0.5, 0.2 * r_max_NF);
 
 squareLen_sweep = [100 200 300 500 800 1200];   % [CODE C] extended: FF links return for the large sparse aperture
 nSweep          = length(squareLen_sweep);
@@ -2916,9 +2921,11 @@ for caE = 1:nCaseE
     for scE = 1:nSchE
         rmin_c = min(rmin_c, 2 * EN_geo{scE, caE}.aperture ^ 2 / lambda);
     end
-    en_rnf(caE) = 0.8 * rmin_c;
-    fprintf('  Case %d: all users dropped within %.1f m of an AP (min Rayleigh %.1f m)\n', ...
-            caE, en_rnf(caE), rmin_c);
+    % horizontal radius, corrected for the AP height: the near-field test uses
+    % d3 = sqrt(hDiff^2 + dH^2), so dH must satisfy dH < sqrt(Rayleigh^2 - hDiff^2).
+    en_rnf(caE) = 0.8 * sqrt(max(rmin_c ^ 2 - hDiff ^ 2, 1));
+    fprintf('  Case %d: users dropped within %.1f m (horizontal) of an AP; min Rayleigh %.1f m, AP height %.0f m\n', ...
+            caE, en_rnf(caE), rmin_c, hDiff);
 end
 
 EN_nmse = zeros(nSchE, nCaseE, nSNR, nSetE);
