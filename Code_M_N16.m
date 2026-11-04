@@ -3143,15 +3143,19 @@ if eqN_study
     figure('Name', 'SPM-1 Sparse-array design metrics', 'Position', [30 30 1300 820]);
     clv = zeros(nSchE, 1);  wvv = zeros(nSchE, 3);  pslw = zeros(nSchE, 1);
     apv = zeros(nSchE, 1);  rayv = zeros(nSchE, 1);
+    udD = zeros(nSchE, 1);  udS = zeros(nSchE, 1);
     for scE = 1:nSchE
-        pg = EN_geo{scE, 1}{1}.pos;
+        pg = EN_geo{scE, 1}.pos;
         [clv(scE), wvv(scE, :), pslw(scE)] = sparse_metrics(pg, lambda);
-        apv(scE) = EN_geo{scE, 1}{1}.aperture;
+        apv(scE)  = EN_geo{scE, 1}.aperture;
         rayv(scE) = 2 * apv(scE) ^ 2 / lambda;
+        udD(scE)  = EN_CA{scE, 1}.Nv;                       % hole-free DIFFERENCE co-array
+        cas_m     = coarray_setup(pg, lambda, 'sum');
+        udS(scE)  = cas_m.Nv;                               % hole-free SUM co-array
     end
     lbl = @() set(gca, 'XTick', 1:nSchE, 'XTickLabel', en_names, ...
                   'XTickLabelRotation', 18, 'TickLabelInterpreter', 'none');
-    subplot(2, 3, 1); bar(1:nSchE, [EN_udD(:, 1), EN_udS(:, 1)]); lbl(); grid on;
+    subplot(2, 3, 1); bar(1:nSchE, [udD(:), udS(:)]); lbl(); grid on;
     ylabel('lags'); title('uDOF: difference (angle) and sum (range)');
     legend({'uDOF diff', 'uDOF sum'}, 'Location', 'northwest');
     subplot(2, 3, 2); bar(1:nSchE, clv); lbl(); grid on;
