@@ -220,10 +220,10 @@ function n = force_count(n, N0)""")
 
 # ============================================================ 7. EN study: collect SINR
 rep("""EN_seD  = nan(4, 16, nSchE, nCaseE, nSetE);         % per-user SE at ref SNR (4 detectors)""",
-"""EN_seD  = nan(4, 16, nSchE, nCaseE, nSetE);         % per-user SE at ref SNR (4 detectors)
+"""EN_seD  = nan(4, max(en_K), nSchE, nCaseE, nSetE);  % [CODE M] sized by the largest K
 EN_sinr = zeros(4, nSchE, nCaseE, nSNR, nSetE);     % [CODE M] effective SINR -> waterfall BER""")
 rep("""    s_seD  = nan(4, 16, nSchE, nCaseE);""",
-"""    s_seD  = nan(4, 16, nSchE, nCaseE);
+"""    s_seD  = nan(4, max(en_K), nSchE, nCaseE);
     s_sinr = zeros(4, nSchE, nCaseE, nSNR);""")
 rep("""                s_time(scE, caE) = s_time(scE, caE) + O.time;""",
 """                s_sinr(:, scE, caE, si) = mean(O.sinr, 2);

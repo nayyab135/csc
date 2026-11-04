@@ -2884,7 +2884,7 @@ EN_loc  = nan(nSchE, nCaseE, nSNR, nSetE);
 EN_time = zeros(nSchE, nCaseE, nSetE);              % mean run time (complexity proxy)
 EN_fh   = zeros(nSchE, nCaseE, nSetE);              % fused APs per user (fronthaul proxy)
 EN_nf   = zeros(nSchE, nCaseE, nSetE);              % near-field link fraction
-EN_seD  = nan(4, 16, nSchE, nCaseE, nSetE);         % per-user SE at ref SNR (4 detectors)
+EN_seD  = nan(4, max(en_K), nSchE, nCaseE, nSetE);  % [CODE M] sized by the largest K
 EN_sinr = zeros(4, nSchE, nCaseE, nSNR, nSetE);     % [CODE M] effective SINR -> waterfall BER
 
 if eqN_study
@@ -2906,7 +2906,7 @@ parfor ns = 1:nSetE
     s_time = zeros(nSchE, nCaseE);
     s_fh   = zeros(nSchE, nCaseE);
     s_nf   = zeros(nSchE, nCaseE);
-    s_seD  = nan(4, 16, nSchE, nCaseE);
+    s_seD  = nan(4, max(en_K), nSchE, nCaseE);
     s_sinr = zeros(4, nSchE, nCaseE, nSNR);
     for caE = 1:nCaseE
         Kc  = en_K(caE);
