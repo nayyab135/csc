@@ -69,7 +69,8 @@ rep("""        case 'sumfirst'""",
                     hh_h = [half; pp_h];
                     nn_h = unique([-flipud(hh_h); hh_h]);
                     dd_h = unique(reshape(nn_h - nn_h.', [], 1));
-                    rr_h = longest_contig(dd_h);
+                    rr_h = numel(longest_contig(dd_h));   % LENGTH of the run
+                                                          % (longest_contig returns the run itself)
                     if rr_h > bestr, bestr = rr_h;  bestp = pp_h;  end
                 end
                 half = [half; bestp];
