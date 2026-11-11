@@ -15,10 +15,12 @@ clc;
 %     that VIRTUAL array supplies high-resolution angle candidates. The range
 %     is then found by a 1-D search at that angle on the physical observation,
 %     which is the procedure used in the near-field co-array literature.
-%   * eqN_study (CODE I): consolidated equal-physical-antenna comparison of four
-%     arrays (dense ULA, ECA+CAPE, standard diff co-array, proposed symmetric
-%     near-field co-array) plus the detector comparison (Cross-AP List vs
-%     Linear MMSE / Hard-SIC / List-SIC). Figures DET-1..3 and ARR-1..6.
+%   * eqN_study (CODE R): focused sparse-array comparison at 32 antennas.
+%     Six schemes: Dense ULA + CAPE (ref), Nested local / Nested + CAPE,
+%     Difference co-array + CAPE, Uniform sparse local / Uniform sparse + CAPE
+%     (proposed). Two stories: (a) array geometry nested vs diff co-array vs
+%     uniform, incl. performance vs number of users K; (b) CAPE on/off.
+%     Figures R1..R9 (<=10, the important sparse-array metrics).
 %   * idea_study (CODE F): applies the three NEW structure ideas from the
 %     companion note (Idea 2 cross-AP co-array, Idea 3 sum+difference
 %     co-array, Idea 4 hybrid-field reconfigurable) and compares them against
@@ -2845,10 +2847,11 @@ end
 %    Case 2  user-rich     N0 = 8  antennas, K = 16 users  (K > N)  <- co-array home turf
 %% ====================================================================
 eqN_study   = true;
-en_names    = {'Dense ULA', 'Nested sparse array', ...
-               'Standard difference co-array', 'Uniform sparse array'};
-en_geom     = {'ula', 'nested', 'nested', 'usparse'};   % [CODE R] scheme 4: uniform sparse (new idea)
-en_idea     = [0 0 1 0];   % [CODE R] scheme 4 uses NO co-array (network resolves ambiguity)
+en_names    = {'Dense ULA + CAPE (ref)', 'Nested, local est.', 'Nested + CAPE', ...
+               'Difference co-array + CAPE', 'Uniform sparse, local est.', 'Uniform sparse + CAPE (proposed)'};
+en_geom     = {'ula', 'nested', 'nested', 'nested', 'usparse', 'usparse'};  % [CODE R] 6 schemes
+en_idea     = [0 0 0 1 0 0];   % [CODE R] scheme 4 (diff co-array) uses co-array processing; others none
+en_cape     = [1 0 1 1 0 1];   % [CODE R] CAPE on/off per scheme (2,5 = local est.; rest CAPE)
 nSchE       = numel(en_names);
 en_caseName = {'Antenna-rich (K<N)', 'User-rich (K>N)'};
 en_N0       = [32 32];      % [CODE O] 32 PHYSICAL antennas per AP, both cases
@@ -2932,7 +2935,7 @@ parfor ns = 1:nSetE
             FG.nSubMax = ca_Nsub_max;
             for si = 1:nSNR
                 seed = 9e6 + 1e4 * ns + 1000 * caE + 10 * scE + si;
-                O = eval_scheme(ST, bet, true, EN_PD{scE, caE}, FG, SNR_lin(si), EPc, false, UEm, seed);
+                O = eval_scheme(ST, bet, en_cape(scE), EN_PD{scE, caE}, FG, SNR_lin(si), EPc, false, UEm, seed);
                 s_nmse(scE, caE, si) = O.nmse;
                 s_be(:, scE, caE, si) = O.be;
                 s_sum(:, scE, caE, si) = O.sum;
@@ -2953,17 +2956,64 @@ parfor ns = 1:nSetE
 end
 end
 
+% ---- [CODE R] K-sweep at the reference SNR: performance vs number of users ----
+% Shows where the difference co-array pulls ahead (many users) and where the
+% uniform sparse array already suffices (few/moderate users). Three schemes,
+% all with CAPE: nested, difference co-array (nested + co-array), uniform.
+Ksw     = [4 8 16 24 32 40 48];
+Ksw_sch = [3 4 6];                  % nested+CAPE, diff-co-array+CAPE, uniform+CAPE
+nKsw    = numel(Ksw);  nKsch = numel(Ksw_sch);
+EN_Kbe  = zeros(nKsch, nKsw, nSetE);    % BER, Cross-AP detector
+EN_Ksum = zeros(nKsch, nKsw, nSetE);    % sum SE, Cross-AP detector
 if eqN_study
-    aC = {[0 0.45 0.74], [0.85 0.33 0.10], [0.47 0.67 0.19], [0.49 0.18 0.56]};
-    dC = {[0 0.45 0.74], [0.85 0.33 0.10], [0.47 0.67 0.19], [0.49 0.18 0.56]};
-    detName = {'Linear MMSE', 'Hard-SIC', 'List-SIC', 'Cross-AP List (proposed)'};
+fprintf('\n=== [CODE R] user-count sweep at %d dB: K = %s ===\n', SNR_dB(snr_ref_idx), mat2str(Ksw));
+parfor ns = 1:nSetE
+    kbe = zeros(nKsch, nKsw);  ksum = zeros(nKsch, nKsw);
+    for ik = 1:nKsw
+        Kc  = Ksw(ik);
+        APp = (rand(L, 1) + 1j * rand(L, 1)) * squareLen;
+        UEp = drop_scenario(APp, Kc, L, min(n_collinear_pairs, floor(Kc / 2)), ...
+                            r_min_NF, r_max_en, 'hotspot', hs_r, squareLen);
+        UEm = mod(real(UEp), squareLen) + 1j * mod(imag(UEp), squareLen);
+        APw = wrap_images(APp, squareLen, wrap_fix);
+        [d3, sE, phL, thL, bet] = link_geometry(APw, UEp, hDiff, fc_GHz, hBS, hUT, c0, noisePow_dBm);
+        EPc = struct('nReal', nRealE, 'nSym', nSymE, 'M', M_lst, 'dth', d_th, ...
+                     'maxBr', maxBr, 'mod', modOrder, 'prelog', prelog, 'eps_NF', eps_NF);
+        for jj = 1:nKsch
+            scE = Ksw_sch(jj);
+            Gc  = geom_targetN(en_geom{scE}, en_N0(1), lambda);     % N fixed at 32
+            PDc = build_polar_dict(Gc.pos, lambda, pd_os_ang, pd_q_max, pd_n_q, pd_phase_step, pd_nS_min);
+            PDc.smax = pd_smax;  PDc.stop = pd_stop;  PDc.nref = pd_nref;  PDc.nstart = pd_nstart;
+            ST  = array_stats(Gc, d3, sE, phL, thL, bet, lambda, eps_NF, ASD_varphi, ASD_theta, clu_div);
+            FG  = cape_cfg(true, APp, APw, squareLen, hDiff, cape_nAP, cape_nCand, ...
+                           cape_J, cape_step0, cape_nIter, cape_consist);
+            FG.useCA = (en_idea(scE) > 0);  FG.co_idea = en_idea(scE);
+            FG.CA = coarray_setup(Gc.pos, lambda, 'diff');  FG.CAs = [];
+            FG.nAng = ca_nAngGrid;  FG.nRng = ca_nRangeGrid;
+            FG.nPk = max(ca_nPeak, ceil(Kc / 2));  FG.nSubMax = ca_Nsub_max;
+            seed = 3e7 + 1e4 * ns + 100 * ik + scE;
+            O = eval_scheme(ST, bet, en_cape(scE), PDc, FG, SNR_lin(snr_ref_idx), EPc, false, UEm, seed);
+            kbe(jj, ik)  = O.be(4);
+            ksum(jj, ik) = O.sum(4);
+        end
+    end
+    EN_Kbe(:, :, ns) = kbe;  EN_Ksum(:, :, ns) = ksum;
+    fprintf('  user-count sweep setup %d/%d done\n', ns, nSetE);
+end
+end
+
+if eqN_study
+    %% ============ [CODE R] FOCUSED SPARSE-ARRAY COMPARISON FIGURES ============
+    %  Story 1 (array geometry, all with CAPE): nested vs difference co-array vs
+    %           uniform sparse -- incl. performance vs number of users K.
+    %  Story 2 (proposed CAPE): nested / uniform WITHOUT CAPE vs WITH CAPE.
+    %  Dense ULA kept only as a reference baseline (resolution/localization).
     si0 = snr_ref_idx;
-    mNM = mean(EN_nmse, 4);        % nSchE x nCaseE x nSNR
-    mBE = mean(EN_be, 5);          % 4 x nSchE x nCaseE x nSNR
-    mSU = mean(EN_sum, 5);
-    mTIME = mean(EN_time, 3);      % nSchE x nCaseE
-    mFH   = mean(EN_fh, 3);
-    mNF   = mean(EN_nf, 3);
+    dXAP = 4;                                   % Cross-AP List detector index
+    S_dense = 1; S_nestL = 2; S_nest = 3; S_dca = 4; S_uniL = 5; S_uni = 6;
+    cDense = [0.50 0.50 0.50];  cNest = [0.85 0.33 0.10];
+    cDCA   = [0.47 0.67 0.19];  cUni  = [0.00 0.45 0.74];
+    mNM = mean(EN_nmse, 4);  mBE = mean(EN_be, 5);  mSU = mean(EN_sum, 5);
     mLC = nan(nSchE, nCaseE, nSNR);
     for scE = 1:nSchE
         for caE = 1:nCaseE
@@ -2973,235 +3023,137 @@ if eqN_study
             end
         end
     end
-    prop = nSchE;                  % proposed array is the last scheme
-    c1   = 1;                      % antenna-rich case = main scenario
+    gIdx = [S_dense S_nest S_uni];  gNm = {'Dense ULA', 'Nested', 'Uniform sparse'};
+    gCol = {cDense, cNest, cUni};
 
-    %% ---------------- DETECTOR COMPARISON (proposed array, main scenario) ----------------
-    % DET-1: BER vs SNR, four detectors
-    figure('Name', 'DET-1 BER: Cross-AP List vs standard detectors', 'Position', [30 30 760 560]);
-    hold on; box on; grid on;
-    for d = 1:4
-        semilogy(SNR_dB, max(squeeze(mBE(d, prop, c1, :)), 1e-6), '-o', 'Color', dC{d}, ...
-                 'LineWidth', 1.6, 'DisplayName', detName{d});
-    end
-    set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('BER');
-    title('Detector comparison (proposed array, hybrid NF/FF)'); legend('Location', 'southwest');
-
-    % DET-2: sum rate vs SNR, four detectors
-    figure('Name', 'DET-2 Sum rate: Cross-AP List vs standard detectors', 'Position', [30 30 760 560]);
-    hold on; box on; grid on;
-    for d = 1:4
-        plot(SNR_dB, squeeze(mSU(d, prop, c1, :)), '-o', 'Color', dC{d}, ...
-             'LineWidth', 1.6, 'DisplayName', detName{d});
-    end
-    xlabel('SNR [dB]'); ylabel('Sum rate [bit/s/Hz]');
-    title('Detector comparison (proposed array)'); legend('Location', 'northwest');
-
-    % DET-3: per-user SE CDF at reference SNR, four detectors
-    figure('Name', 'DET-3 Per-user SE CDF: detectors', 'Position', [30 30 760 560]);
-    hold on; box on; grid on;
-    for d = 1:4
-        v = EN_seD(d, :, prop, c1, :);  v = v(isfinite(v));  v = sort(v(:));
-        if ~isempty(v)
-            plot(v, (1:numel(v)) / numel(v), '-', 'Color', dC{d}, 'LineWidth', 1.6, 'DisplayName', detName{d});
-        end
-    end
-    xlabel('Per-user SE [bit/s/Hz]'); ylabel('CDF');
-    title(sprintf('Per-user SE at %d dB (proposed array)', SNR_dB(si0))); legend('Location', 'southeast');
-
-    %% ---------------- ARRAY COMPARISON (Cross-AP List detector, both regimes) ----------------
-    % ARR-1: BER vs SNR, four arrays, per regime
-    figure('Name', 'ARR-1 BER: dense vs ECA vs std co-array vs proposed', 'Position', [30 30 1250 480]);
-    for caE = 1:nCaseE
-        subplot(1, nCaseE, caE); hold on; box on; grid on;
-        for scE = 1:nSchE
-            semilogy(SNR_dB, max(squeeze(mBE(4, scE, caE, :)), 1e-6), '-o', 'Color', aC{scE}, ...
-                     'LineWidth', 1.6, 'DisplayName', en_names{scE});
-        end
-        set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('BER');
-        title(sprintf('%s (N=%d, K=%d)', en_caseName{caE}, en_N0(caE), en_K(caE)));
-        legend('Location', 'southwest');
-    end
-
-    % ARR-2: sum rate vs SNR, four arrays
-    figure('Name', 'ARR-2 Sum rate: four arrays', 'Position', [30 30 1250 480]);
-    for caE = 1:nCaseE
-        subplot(1, nCaseE, caE); hold on; box on; grid on;
-        for scE = 1:nSchE
-            plot(SNR_dB, squeeze(mSU(4, scE, caE, :)), '-o', 'Color', aC{scE}, ...
-                 'LineWidth', 1.6, 'DisplayName', en_names{scE});
-        end
-        xlabel('SNR [dB]'); ylabel('Sum rate [bit/s/Hz]');
-        title(sprintf('%s (N=%d, K=%d)', en_caseName{caE}, en_N0(caE), en_K(caE)));
-        legend('Location', 'northwest');
-    end
-
-    % ARR-3: channel NMSE vs SNR, four arrays
-    figure('Name', 'ARR-3 NMSE: four arrays', 'Position', [30 30 1250 480]);
-    for caE = 1:nCaseE
-        subplot(1, nCaseE, caE); hold on; box on; grid on;
-        for scE = 1:nSchE
-            semilogy(SNR_dB, squeeze(mNM(scE, caE, :)), '-o', 'Color', aC{scE}, ...
-                     'LineWidth', 1.6, 'DisplayName', en_names{scE});
-        end
-        set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('Channel NMSE');
-        title(sprintf('%s (N=%d, K=%d)', en_caseName{caE}, en_N0(caE), en_K(caE)));
-        legend('Location', 'southwest');
-    end
-
-    % ARR-4: computational cost (run time) and fronthaul (fused APs)
-    figure('Name', 'ARR-4 Complexity and fronthaul', 'Position', [30 30 1250 480]);
-    subplot(1, 2, 1); hold on; box on; grid on;
-    bar(1:nSchE, mTIME);
-    set(gca, 'XTick', 1:nSchE, 'XTickLabel', en_names, 'XTickLabelRotation', 20, 'TickLabelInterpreter', 'none');
-    ylabel('Mean run time per setup [s]'); title('Computational cost (empirical)');
-    legend(en_caseName, 'Location', 'northwest');
-    subplot(1, 2, 2); hold on; box on; grid on;
-    bar(1:nSchE, mFH);
-    set(gca, 'XTick', 1:nSchE, 'XTickLabel', en_names, 'XTickLabelRotation', 20, 'TickLabelInterpreter', 'none');
-    ylabel('Mean fused APs per user'); title('Fronthaul load (CAPE pilot fusion)');
-    legend(en_caseName, 'Location', 'northwest');
-
-    % ARR-5: per-user SE CDF and localisation CDF across arrays (ref SNR, main scenario)
-    figure('Name', 'ARR-5 Per-user SE and localisation CDF', 'Position', [30 30 1250 480]);
-    subplot(1, 2, 1); hold on; box on; grid on;
-    for scE = 1:nSchE
-        v = EN_seD(4, :, scE, c1, :);  v = v(isfinite(v));  v = sort(v(:));
-        if ~isempty(v)
-            plot(v, (1:numel(v)) / numel(v), '-', 'Color', aC{scE}, 'LineWidth', 1.6, 'DisplayName', en_names{scE});
-        end
-    end
-    xlabel('Per-user SE [bit/s/Hz]'); ylabel('CDF');
-    title(sprintf('Per-user SE at %d dB (Cross-AP List)', SNR_dB(si0))); legend('Location', 'southeast');
-    subplot(1, 2, 2); hold on; box on; grid on;
-    for scE = 1:nSchE
-        v = EN_loc(scE, c1, :, :);  v = v(isfinite(v));  v = sort(v(:));
-        if ~isempty(v)
-            plot(v, (1:numel(v)) / numel(v), '-', 'Color', aC{scE}, 'LineWidth', 1.6, 'DisplayName', en_names{scE});
-        end
-    end
-    xlabel('Localisation error [m]'); ylabel('CDF');
-    title('CAPE localisation error'); legend('Location', 'southeast');
-
-    % ARR-6: equal-N geometry, virtual sensors, near-field fraction
-    figure('Name', 'ARR-6 Equal-N geometry, DOF, near-field fraction', 'Position', [30 30 1250 480]);
-    subplot(1, 2, 1); hold on; box on; grid on;
-    Nphys = cellfun(@(g) g.N, EN_geo(:, 1));
-    Nvirt = cellfun(@(c) c.DOF, EN_CA(:, 1));
-    bar(1:nSchE, [Nphys(:), Nvirt(:)]); set(gca, 'YScale', 'log');
-    set(gca, 'XTick', 1:nSchE, 'XTickLabel', en_names, 'XTickLabelRotation', 20, 'TickLabelInterpreter', 'none');
-    ylabel('count'); title(sprintf('Equal physical N=%d: antennas vs virtual sensors', en_N0(1)));
-    legend({'physical antennas', 'virtual sensors'}, 'Location', 'northwest');
-    subplot(1, 2, 2); hold on; box on; grid on;
-    bar(1:nSchE, 100 * mNF);
-    set(gca, 'XTick', 1:nSchE, 'XTickLabel', en_names, 'XTickLabelRotation', 20, 'TickLabelInterpreter', 'none');
-    ylabel('Near-field link fraction [%]'); ylim([0 105]);
-    title('How much of each array is actually near-field'); legend(en_caseName, 'Location', 'northeast');
-
-    %% ========== [CODE P] SPARSE-ARRAY FIGURES USED IN THE LITERATURE ==========
-    % SPA-1: physical elements and their difference co-array (the opening
-    % figure of essentially every sparse-array paper).
-    figure('Name', 'SPA-1 Physical array and its difference co-array', 'Position', [30 30 1250 820]);
-    for scE = 1:nSchE
-        subplot(nSchE, 1, scE); hold on; box on; grid on;
-        pp = EN_geo{scE, 1}.pos;
-        plot(pp, ones(numel(pp), 1), 'o', 'Color', aC{scE}, ...
-             'MarkerFaceColor', aC{scE}, 'MarkerSize', 5);
-        plot(EN_CA{scE, 1}.pos_v, 0.6 * ones(EN_CA{scE, 1}.Nv, 1), '.', ...
-             'Color', aC{scE}, 'MarkerSize', 6);
+    % ---- R1: physical array and its difference co-array ----
+    figure('Name', 'R1 Geometry and difference co-array', 'Position', [30 30 1100 620]);
+    for g = 1:3
+        G = EN_geo{gIdx(g), 1};  CA = coarray_setup(G.pos, lambda, 'diff');
+        subplot(3, 1, g); hold on; box on; grid on;
+        plot(G.pos, ones(G.N, 1), 'o', 'Color', gCol{g}, 'MarkerFaceColor', gCol{g}, 'MarkerSize', 5);
+        plot(CA.pos_v, 0.6 * ones(CA.Nv, 1), '.', 'Color', gCol{g}, 'MarkerSize', 6);
         ylim([0.3 1.3]); set(gca, 'YTick', [0.6 1], 'YTickLabel', {'virtual', 'physical'});
-        xlabel('position along the array [m]');
-        title(sprintf('%s:  N = %d physical,  %d virtual sensors (hole-free %d),  aperture %.2f m', ...
-              en_names{scE}, EN_geo{scE, 1}.N, EN_CA{scE, 1}.DOF, EN_CA{scE, 1}.Nv, ...
-              EN_geo{scE, 1}.aperture), 'Interpreter', 'none');
+        xlabel('position along array [m]');
+        title(sprintf('%s:  N = %d,  aperture = %.2f m,  uDOF(diff) = %d,  Rayleigh = %.0f m', ...
+              gNm{g}, G.N, G.aperture, CA.Nv, 2 * G.aperture^2 / lambda), 'Interpreter', 'none');
     end
 
-    % SPA-2: the design metrics those papers tabulate
-    figure('Name', 'SPA-2 Sparse-array design metrics', 'Position', [30 30 1300 820]);
-    clv = zeros(nSchE, 1);  wvv = zeros(nSchE, 3);  pslw = zeros(nSchE, 1);
-    apv = zeros(nSchE, 1);  rayv = zeros(nSchE, 1);
-    udD = zeros(nSchE, 1);  udS = zeros(nSchE, 1);
-    for scE = 1:nSchE
-        pg = EN_geo{scE, 1}.pos;
-        [clv(scE), wvv(scE, :), pslw(scE)] = sparse_metrics(pg, lambda);
-        apv(scE)  = EN_geo{scE, 1}.aperture;
-        rayv(scE) = 2 * apv(scE) ^ 2 / lambda;
-        udD(scE)  = EN_CA{scE, 1}.Nv;
-        cas_p     = coarray_setup(pg, lambda, 'sum');
-        udS(scE)  = cas_p.Nv;
-    end
-    lblp = @() set(gca, 'XTick', 1:nSchE, 'XTickLabel', en_names, ...
-                   'XTickLabelRotation', 18, 'TickLabelInterpreter', 'none');
-    subplot(2, 3, 1); bar(1:nSchE, [udD(:), udS(:)]); lblp(); grid on;
-    ylabel('lags'); title('uDOF: difference (angle) and sum (range)');
-    legend({'uDOF diff', 'uDOF sum'}, 'Location', 'northwest');
-    subplot(2, 3, 2); bar(1:nSchE, clv); lblp(); grid on;
-    ylabel('coupling leakage'); title('Mutual coupling (lower is better)');
-    subplot(2, 3, 3); bar(1:nSchE, wvv); lblp(); grid on;
-    ylabel('antenna pairs'); title('Weight function w(1), w(2), w(3)');
-    legend({'w(1)', 'w(2)', 'w(3)'}, 'Location', 'northwest');
-    subplot(2, 3, 4); bar(1:nSchE, pslw); lblp(); grid on;
-    ylabel('peak sidelobe'); title('Ambiguity (peak sidelobe level)');
-    subplot(2, 3, 5); bar(1:nSchE, apv); lblp(); grid on;
-    ylabel('aperture [m]'); title('Physical aperture');
-    subplot(2, 3, 6); bar(1:nSchE, rayv); lblp(); grid on; set(gca, 'YScale', 'log');
-    ylabel('Rayleigh distance [m]'); title('Near-field reach  2D^2/\lambda');
-
-    % SPA-3: beampattern -- where the grating lobes are
-    figure('Name', 'SPA-3 Beampattern', 'Position', [30 30 1100 520]);
-    hold on; box on; grid on;
-    sgb = linspace(-1, 1, 2001);
-    for scE = 1:nSchE
-        pp = EN_geo{scE, 1}.pos(:);
+    % ---- R2: beampattern (where the grating lobes are) ----
+    figure('Name', 'R2 Beampattern and grating lobes', 'Position', [30 30 900 480]);
+    hold on; box on; grid on;  sgb = linspace(-1, 1, 2001);
+    for g = 1:3
+        pp = EN_geo{gIdx(g), 1}.pos(:);
         Bb = abs(sum(exp(1j * 2 * pi * (sgb.' * pp.') / lambda), 2)) / numel(pp);
-        plot(sgb, 20 * log10(max(Bb, 1e-4)), 'Color', aC{scE}, ...
-             'LineWidth', 1.5, 'DisplayName', en_names{scE});
+        plot(sgb, 20 * log10(max(Bb, 1e-4)), 'Color', gCol{g}, 'LineWidth', 1.5, 'DisplayName', gNm{g});
     end
     xlabel('sin(\theta)'); ylabel('Normalised beampattern [dB]'); ylim([-40 0]);
-    title('Beampattern: main lobe width and grating lobes'); legend('Location', 'south');
+    title('Beampattern: uniform sparse has grating lobes (CAPE resolves them); nested suppresses them');
+    legend('Location', 'south');
 
-    % SPA-4: uDOF growth with the number of physical sensors
-    figure('Name', 'SPA-4 uDOF vs number of physical antennas', 'Position', [30 30 1100 520]);
-    hold on; box on; grid on;
-    Nsw = 8:4:48;
-    for scE = 1:nSchE
-        udn = zeros(size(Nsw));
-        for ii = 1:numel(Nsw)
-            Gt = geom_targetN(en_geom{scE}, Nsw(ii), lambda);
-            ct = coarray_setup(Gt.pos, lambda, 'diff');
-            udn(ii) = ct.Nv;
-        end
-        plot(Nsw, udn, '-o', 'Color', aC{scE}, 'LineWidth', 1.6, 'DisplayName', en_names{scE});
-    end
-    xlabel('number of physical antennas N'); ylabel('uDOF (hole-free virtual sensors)');
-    title('Degrees of freedom vs array size'); legend('Location', 'northwest');
-
-    % SPA-5: localisation RMSE vs SNR (the DOA-paper form of accuracy)
-    figure('Name', 'SPA-5 Localisation error vs SNR', 'Position', [30 30 1250 480]);
+    % ---- R3: CAPE benefit on channel NMSE (nested & uniform, off vs on) ----
+    figure('Name', 'R3 CAPE benefit - channel NMSE', 'Position', [30 30 1150 470]);
     for caE = 1:nCaseE
-        subplot(1, nCaseE, caE); hold on; box on; grid on;
-        for scE = 1:nSchE
-            semilogy(SNR_dB, squeeze(mLC(scE, caE, :)), '-o', 'Color', aC{scE}, ...
-                     'LineWidth', 1.6, 'DisplayName', en_names{scE});
+        subplot(1, 2, caE); hold on; box on; grid on;
+        semilogy(SNR_dB, squeeze(mNM(S_nestL, caE, :)), '--s', 'Color', cNest, 'LineWidth', 1.6, 'DisplayName', 'Nested, local est.');
+        semilogy(SNR_dB, squeeze(mNM(S_nest,  caE, :)), '-s',  'Color', cNest, 'LineWidth', 1.6, 'DisplayName', 'Nested + CAPE');
+        semilogy(SNR_dB, squeeze(mNM(S_uniL,  caE, :)), '--o', 'Color', cUni,  'LineWidth', 1.6, 'DisplayName', 'Uniform, local est.');
+        semilogy(SNR_dB, squeeze(mNM(S_uni,   caE, :)), '-o',  'Color', cUni,  'LineWidth', 1.6, 'DisplayName', 'Uniform + CAPE');
+        set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('Channel NMSE');
+        title(sprintf('%s (K = %d)', en_caseName{caE}, en_K(caE))); legend('Location', 'southwest');
+    end
+
+    % ---- R4: CAPE benefit on BER (nested & uniform, off vs on) ----
+    figure('Name', 'R4 CAPE benefit - BER', 'Position', [30 30 1150 470]);
+    for caE = 1:nCaseE
+        subplot(1, 2, caE); hold on; box on; grid on;
+        semilogy(SNR_dB, max(squeeze(mBE(dXAP, S_nestL, caE, :)), 1e-6), '--s', 'Color', cNest, 'LineWidth', 1.6, 'DisplayName', 'Nested, local est.');
+        semilogy(SNR_dB, max(squeeze(mBE(dXAP, S_nest,  caE, :)), 1e-6), '-s',  'Color', cNest, 'LineWidth', 1.6, 'DisplayName', 'Nested + CAPE');
+        semilogy(SNR_dB, max(squeeze(mBE(dXAP, S_uniL,  caE, :)), 1e-6), '--o', 'Color', cUni,  'LineWidth', 1.6, 'DisplayName', 'Uniform, local est.');
+        semilogy(SNR_dB, max(squeeze(mBE(dXAP, S_uni,   caE, :)), 1e-6), '-o',  'Color', cUni,  'LineWidth', 1.6, 'DisplayName', 'Uniform + CAPE');
+        set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('BER (Cross-AP List)');
+        title(sprintf('%s (K = %d)', en_caseName{caE}, en_K(caE))); legend('Location', 'southwest');
+    end
+
+    % ---- R5: array comparison, BER (all with CAPE) ----
+    aS = [S_nest S_dca S_uni];
+    aNm = {'Nested + CAPE', 'Difference co-array + CAPE', 'Uniform sparse + CAPE (proposed)'};
+    aCol = {cNest, cDCA, cUni};  aMk = {'-s', '-^', '-o'};
+    figure('Name', 'R5 Array comparison - BER (all with CAPE)', 'Position', [30 30 1150 470]);
+    for caE = 1:nCaseE
+        subplot(1, 2, caE); hold on; box on; grid on;
+        for j = 1:3
+            semilogy(SNR_dB, max(squeeze(mBE(dXAP, aS(j), caE, :)), 1e-6), aMk{j}, 'Color', aCol{j}, 'LineWidth', 1.6, 'DisplayName', aNm{j});
         end
+        set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('BER (Cross-AP List)');
+        title(sprintf('%s (K = %d)', en_caseName{caE}, en_K(caE))); legend('Location', 'southwest');
+    end
+
+    % ---- R6: array comparison, sum SE (all with CAPE) ----
+    figure('Name', 'R6 Array comparison - sum SE (all with CAPE)', 'Position', [30 30 1150 470]);
+    for caE = 1:nCaseE
+        subplot(1, 2, caE); hold on; box on; grid on;
+        for j = 1:3
+            plot(SNR_dB, squeeze(mSU(dXAP, aS(j), caE, :)), aMk{j}, 'Color', aCol{j}, 'LineWidth', 1.6, 'DisplayName', aNm{j});
+        end
+        xlabel('SNR [dB]'); ylabel('Sum SE [bit/s/Hz]');
+        title(sprintf('%s (K = %d)', en_caseName{caE}, en_K(caE))); legend('Location', 'northwest');
+    end
+
+    % ---- R7: performance vs number of users K (the crossover figure) ----
+    mKbe = mean(EN_Kbe, 3);  mKsum = mean(EN_Ksum, 3);     % nKsch x nKsw
+    kNm = {'Nested + CAPE', 'Difference co-array + CAPE', 'Uniform sparse + CAPE'};
+    kCol = {cNest, cDCA, cUni};  kMk = {'-s', '-^', '-o'};
+    figure('Name', 'R7 Performance vs number of users K', 'Position', [30 30 1150 470]);
+    subplot(1, 2, 1); hold on; box on; grid on;
+    for j = 1:nKsch
+        semilogy(Ksw, max(mKbe(j, :), 1e-6), kMk{j}, 'Color', kCol{j}, 'LineWidth', 1.6, 'DisplayName', kNm{j});
+    end
+    set(gca, 'YScale', 'log'); xlabel('number of users K'); ylabel('BER (Cross-AP List)');
+    title(sprintf('BER vs K at %d dB (N = %d)', SNR_dB(si0), en_N0(1))); legend('Location', 'northwest');
+    subplot(1, 2, 2); hold on; box on; grid on;
+    for j = 1:nKsch
+        plot(Ksw, mKsum(j, :), kMk{j}, 'Color', kCol{j}, 'LineWidth', 1.6, 'DisplayName', kNm{j});
+    end
+    xlabel('number of users K'); ylabel('Sum SE [bit/s/Hz]');
+    title(sprintf('Sum SE vs K at %d dB (N = %d)', SNR_dB(si0), en_N0(1))); legend('Location', 'northwest');
+
+    % ---- R8: array hardware metrics (the economy/coupling argument) ----
+    figure('Name', 'R8 Array hardware metrics', 'Position', [30 30 1200 440]);
+    apv = zeros(3, 1); udv = zeros(3, 1); w1v = zeros(3, 1); clv = zeros(3, 1);
+    for g = 1:3
+        pg = EN_geo{gIdx(g), 1}.pos;  [clv(g), wv, ~] = sparse_metrics(pg, lambda);  w1v(g) = wv(1);
+        apv(g) = EN_geo{gIdx(g), 1}.aperture;  cas = coarray_setup(pg, lambda, 'diff');  udv(g) = cas.Nv;
+    end
+    subplot(1, 4, 1); bar(apv); set(gca, 'XTick', 1:3, 'XTickLabel', gNm, 'XTickLabelRotation', 20); ylabel('aperture [m]'); title('Aperture (resolution)'); grid on;
+    subplot(1, 4, 2); bar(udv); set(gca, 'XTick', 1:3, 'XTickLabel', gNm, 'XTickLabelRotation', 20, 'YScale', 'log'); ylabel('uDOF'); title('Co-array uDOF'); grid on;
+    subplot(1, 4, 3); bar(w1v); set(gca, 'XTick', 1:3, 'XTickLabel', gNm, 'XTickLabelRotation', 20); ylabel('w(1)'); title('Closest-pair count (coupling)'); grid on;
+    subplot(1, 4, 4); bar(clv); set(gca, 'XTick', 1:3, 'XTickLabel', gNm, 'XTickLabelRotation', 20); ylabel('coupling leakage'); title('Mutual coupling'); grid on;
+
+    % ---- R9: localisation error vs SNR (sparse vs dense resolution) ----
+    figure('Name', 'R9 Localisation error vs SNR', 'Position', [30 30 1150 470]);
+    for caE = 1:nCaseE
+        subplot(1, 2, caE); hold on; box on; grid on;
+        semilogy(SNR_dB, squeeze(mLC(S_dense, caE, :)), '-d', 'Color', cDense, 'LineWidth', 1.6, 'DisplayName', 'Dense ULA + CAPE');
+        semilogy(SNR_dB, squeeze(mLC(S_nest,  caE, :)), '-s', 'Color', cNest,  'LineWidth', 1.6, 'DisplayName', 'Nested + CAPE');
+        semilogy(SNR_dB, squeeze(mLC(S_uni,   caE, :)), '-o', 'Color', cUni,   'LineWidth', 1.6, 'DisplayName', 'Uniform + CAPE');
         set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('Median position error [m]');
-        title(en_caseName{caE}); legend('Location', 'northeast');
+        title(sprintf('%s (K = %d)', en_caseName{caE}, en_K(caE))); legend('Location', 'northeast');
     end
 
-    %% ---------------- console tables ----------------
+    % ---- console summary ----
     for caE = 1:nCaseE
-        fprintf('\n=== [CODE I] Array comparison, %s, at %d dB (N=%d, K=%d) ===\n', ...
+        fprintf('\n=== [CODE R] sparse comparison, %s, at %d dB (N=%d, K=%d) ===\n', ...
                 en_caseName{caE}, SNR_dB(si0), en_N0(caE), en_K(caE));
-        fprintf('%-26s %5s %8s %6s %10s %10s %9s %9s\n', 'array', 'N', 'virtual', 'NF[%]', ...
-                'NMSE', 'BER-XAP', 'sumSE', 'time[s]');
+        fprintf('%-34s %6s %10s %10s %9s\n', 'scheme', 'NF[%]', 'NMSE', 'BER-XAP', 'sumSE');
         for scE = 1:nSchE
-            fprintf('%-26s %5d %8d %6.0f %10.2e %10.2e %9.2f %9.3f\n', en_names{scE}, EN_geo{scE, caE}.N, ...
-                    EN_CA{scE, caE}.DOF, 100 * mNF(scE, caE), mNM(scE, caE, si0), ...
-                    mBE(4, scE, caE, si0), mSU(4, scE, caE, si0), mTIME(scE, caE));
+            fprintf('%-34s %6.0f %10.2e %10.2e %9.2f\n', en_names{scE}, 100 * mean(EN_nf(scE, caE, :)), ...
+                    mNM(scE, caE, si0), mBE(dXAP, scE, caE, si0), mSU(dXAP, scE, caE, si0));
         end
     end
-    save('codeR_usparse_results.mat', 'SNR_dB', 'en_names', 'en_geom', 'en_N0', 'en_K', ...
-         'EN_nmse', 'EN_be', 'EN_sum', 'EN_loc', 'EN_time', 'EN_fh', 'EN_nf', 'EN_seD');
+    save('codeR_usparse_results.mat', 'SNR_dB', 'en_names', 'en_geom', 'en_cape', 'en_N0', 'en_K', ...
+         'EN_nmse', 'EN_be', 'EN_sum', 'EN_loc', 'EN_time', 'EN_fh', 'EN_nf', 'EN_seD', ...
+         'Ksw', 'Ksw_sch', 'EN_Kbe', 'EN_Ksum');
 end
 
 
