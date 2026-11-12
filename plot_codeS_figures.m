@@ -3,6 +3,7 @@
 %  No clear, no load, no functions -- it only uses the workspace data and
 %  redraws R0-R9. You can also paste this whole block into the Command Window.
 
+if ~exist('lambda', 'var'), lambda = 0.1; end   % wavelength (c0/fc = 3e8/3e9); only set if missing
 si0 = snr_ref_idx;
 dXAP = 4;                                   % Cross-AP List detector index
 S_dense = 1; S_nestL = 2; S_nest = 3; S_dca = 4; S_uniL = 5; S_uni = 6;
@@ -36,17 +37,21 @@ yline(uspa_eta, '-k', sprintf('chosen \\eta = %d', uspa_eta));
 xlabel('SNR [dB]'); ylabel('spacing \eta (half-wavelengths)');
 title('Widest resolvable spacing vs SNR'); legend('Location', 'best');
 
-% ---- R1: physical array and its difference co-array (uses stored EN_CA) ----
+% ---- R1: physical array and its difference co-array (co-array computed inline) ----
 figure('Name', 'R1 Geometry and difference co-array', 'Position', [30 30 1100 620]);
 for g = 1:3
-    G = EN_geo{gIdx(g), 1};  CA = EN_CA{gIdx(g), 1};
+    G = EN_geo{gIdx(g), 1};
+    lags = unique(round((G.pos(:) - G.pos(:).') / (lambda / 2)));   % difference lags
+    bk = [0; find(diff(lags) ~= 1); numel(lags)];                   % hole-free segments
+    [~, mi] = max(diff(bk));  seg = lags(bk(mi) + 1 : bk(mi + 1));  % longest run
+    pos_v = seg * (lambda / 2);  Nv = numel(seg);
     subplot(3, 1, g); hold on; box on; grid on;
     plot(G.pos, ones(G.N, 1), 'o', 'Color', gCol{g}, 'MarkerFaceColor', gCol{g}, 'MarkerSize', 5);
-    plot(CA.pos_v, 0.6 * ones(CA.Nv, 1), '.', 'Color', gCol{g}, 'MarkerSize', 6);
+    plot(pos_v, 0.6 * ones(Nv, 1), '.', 'Color', gCol{g}, 'MarkerSize', 6);
     ylim([0.3 1.3]); set(gca, 'YTick', [0.6 1], 'YTickLabel', {'virtual', 'physical'});
     xlabel('position along array [m]');
     title(sprintf('%s:  N = %d,  aperture = %.2f m,  uDOF(diff) = %d,  Rayleigh = %.0f m', ...
-          gNm{g}, G.N, G.aperture, CA.Nv, 2 * G.aperture^2 / lambda), 'Interpreter', 'none');
+          gNm{g}, G.N, G.aperture, Nv, 2 * G.aperture^2 / lambda), 'Interpreter', 'none');
 end
 
 % ---- R2: beampattern (where the grating lobes are) ----
@@ -128,7 +133,7 @@ end
 xlabel('number of users K'); ylabel('Sum SE [bit/s/Hz]');
 title(sprintf('Sum SE vs K at %d dB (N = %d)', SNR_dB(si0), en_N0(1))); legend('Location', 'northwest');
 
-% ---- R8: array hardware metrics (uDOF from stored EN_CA; coupling inline) ----
+% ---- R8: array hardware metrics (co-array uDOF and coupling computed inline) ----
 figure('Name', 'R8 Array hardware metrics', 'Position', [30 30 1200 440]);
 apv = zeros(3, 1); udv = zeros(3, 1); w1v = zeros(3, 1); clv = zeros(3, 1);
 for g = 1:3
@@ -144,7 +149,9 @@ for g = 1:3
     end
     clv(g) = norm(U - diag(diag(U)), 'fro') / max(norm(U, 'fro'), eps);
     apv(g) = EN_geo{gIdx(g), 1}.aperture;
-    udv(g) = EN_CA{gIdx(g), 1}.Nv;
+    lags = unique(Dm(:));                                    % difference lags
+    bk = [0; find(diff(lags) ~= 1); numel(lags)];            % hole-free segments
+    udv(g) = max(diff(bk));                                  % longest run length
 end
 subplot(1, 4, 1); bar(apv); set(gca, 'XTick', 1:3, 'XTickLabel', gNm, 'XTickLabelRotation', 20); ylabel('aperture [m]'); title('Aperture (resolution)'); grid on;
 subplot(1, 4, 2); bar(udv); set(gca, 'XTick', 1:3, 'XTickLabel', gNm, 'XTickLabelRotation', 20, 'YScale', 'log'); ylabel('uDOF'); title('Co-array uDOF'); grid on;
