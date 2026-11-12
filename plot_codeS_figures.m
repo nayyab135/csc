@@ -1,38 +1,8 @@
-%% PLOT_CODES_FIGURES  Redraw all Code S (idea-uniform) figures from saved results.
-%  You already ran Code_S_IdeaUniform.m, so the heavy computation is done.
-%  This script just reloads codeS_ideaUniform_results.mat and replots R0-R9.
-%  Usage (in the Command Window):   plot_codeS_figures
-%
-%  It does NOT recompute anything and does NOT overwrite the .mat file.
+%% REDRAW CODE S FIGURES from the variables already in the workspace.
+%  Run Code_S_IdeaUniform.m first (you already did), then run this.
+%  No clear, no load, no functions -- it only uses the workspace data and
+%  redraws R0-R9. You can also paste this whole block into the Command Window.
 
-clear; close all; clc;
-
-RESULTS = 'codeS_ideaUniform_results.mat';
-if ~isfile(RESULTS)
-    error('%s not found in the current folder. cd to where Code S saved it.', RESULTS);
-end
-load(RESULTS);
-
-% ---- variables the figure block needs but that were NOT saved ----
-lambda      = 0.1;                      % c0/fc = 3e8/3e9
-L           = 8;                        % number of APs (title text only)
-usd_Pout    = 0.10;                     % ambiguity-budget target (R0 line only)
-en_caseName = {'Antenna-rich (K<N)', 'User-rich (K>N)'};
-nSchE = numel(en_names);
-nCaseE = numel(en_N0);
-nSNR  = numel(SNR_dB);
-nKsch = numel(Ksw_sch);
-[~, snr_ref_idx] = min(abs(SNR_dB - 10));
-
-% ---- rebuild the physical geometries (R1, R2, R8 need EN_geo) ----
-EN_geo = cell(nSchE, nCaseE);
-for scE = 1:nSchE
-    for caE = 1:nCaseE
-        EN_geo{scE, caE} = geom_targetN(en_geom{scE}, en_N0(caE), lambda, uspa_eta);
-    end
-end
-
-%% ============ FOCUSED SPARSE-ARRAY COMPARISON FIGURES ============
 si0 = snr_ref_idx;
 dXAP = 4;                                   % Cross-AP List detector index
 S_dense = 1; S_nestL = 2; S_nest = 3; S_dca = 4; S_uniL = 5; S_uni = 6;
@@ -66,10 +36,10 @@ yline(uspa_eta, '-k', sprintf('chosen \\eta = %d', uspa_eta));
 xlabel('SNR [dB]'); ylabel('spacing \eta (half-wavelengths)');
 title('Widest resolvable spacing vs SNR'); legend('Location', 'best');
 
-% ---- R1: physical array and its difference co-array ----
+% ---- R1: physical array and its difference co-array (uses stored EN_CA) ----
 figure('Name', 'R1 Geometry and difference co-array', 'Position', [30 30 1100 620]);
 for g = 1:3
-    G = EN_geo{gIdx(g), 1};  CA = coarray_setup(G.pos, lambda, 'diff');
+    G = EN_geo{gIdx(g), 1};  CA = EN_CA{gIdx(g), 1};
     subplot(3, 1, g); hold on; box on; grid on;
     plot(G.pos, ones(G.N, 1), 'o', 'Color', gCol{g}, 'MarkerFaceColor', gCol{g}, 'MarkerSize', 5);
     plot(CA.pos_v, 0.6 * ones(CA.Nv, 1), '.', 'Color', gCol{g}, 'MarkerSize', 6);
@@ -158,12 +128,23 @@ end
 xlabel('number of users K'); ylabel('Sum SE [bit/s/Hz]');
 title(sprintf('Sum SE vs K at %d dB (N = %d)', SNR_dB(si0), en_N0(1))); legend('Location', 'northwest');
 
-% ---- R8: array hardware metrics (the economy/coupling argument) ----
+% ---- R8: array hardware metrics (uDOF from stored EN_CA; coupling inline) ----
 figure('Name', 'R8 Array hardware metrics', 'Position', [30 30 1200 440]);
 apv = zeros(3, 1); udv = zeros(3, 1); w1v = zeros(3, 1); clv = zeros(3, 1);
 for g = 1:3
-    pg = EN_geo{gIdx(g), 1}.pos;  [clv(g), wv, ~] = sparse_metrics(pg, lambda);  w1v(g) = wv(1);
-    apv(g) = EN_geo{gIdx(g), 1}.aperture;  cas = coarray_setup(pg, lambda, 'diff');  udv(g) = cas.Nv;
+    pg = EN_geo{gIdx(g), 1}.pos;
+    Dm = round((pg(:) - pg(:).') / (lambda / 2));
+    w1v(g) = sum(Dm(:) == 1);
+    Na = numel(pg);  U = zeros(Na);
+    for a = 1:Na
+        for b = 1:Na
+            kk = abs(Dm(a, b));
+            if kk == 0, U(a, b) = 1; elseif kk <= 100, U(a, b) = 1 / kk; end
+        end
+    end
+    clv(g) = norm(U - diag(diag(U)), 'fro') / max(norm(U, 'fro'), eps);
+    apv(g) = EN_geo{gIdx(g), 1}.aperture;
+    udv(g) = EN_CA{gIdx(g), 1}.Nv;
 end
 subplot(1, 4, 1); bar(apv); set(gca, 'XTick', 1:3, 'XTickLabel', gNm, 'XTickLabelRotation', 20); ylabel('aperture [m]'); title('Aperture (resolution)'); grid on;
 subplot(1, 4, 2); bar(udv); set(gca, 'XTick', 1:3, 'XTickLabel', gNm, 'XTickLabelRotation', 20, 'YScale', 'log'); ylabel('uDOF'); title('Co-array uDOF'); grid on;
@@ -184,112 +165,3 @@ end
 % ---- bring every figure to the front ----
 figH = findall(0, 'Type', 'figure');
 for i = numel(figH):-1:1, figure(figH(i)); end
-fprintf('Plotted %d figures (R0-R9) from %s.\n', numel(figH), RESULTS);
-
-%% ================= embedded helper functions =================
-function G = geom_targetN(type, N0, lambda, eta)
-    if nargin < 4 || isempty(eta), eta = 9; end
-    d0 = lambda / 2;
-    switch lower(type)
-        case 'ula'
-            n = (0:N0 - 1)';
-        case 'nested'
-            N1 = floor(N0 / 2);  N2 = N0 - N1;
-            n = unique([(1:N1), (1:N2) * (N1 + 1)])';
-        case 'symnested'
-            h  = ceil(N0 / 2);  a1 = floor(h / 2);  a2 = h - a1;
-            half = unique([(1:a1), (1:a2) * (a1 + 1)]);
-            n = unique([-fliplr(half), half])';
-            n = force_count(n, N0);
-        case 'eca'
-            M = 5;  Nc = 4;
-            ca = unique([(0:M - 1) * Nc, (0:Nc - 1) * M]);
-            up = [];  for cc = 0:3, up = [up, cc * M * Nc + ca]; end %#ok<AGROW>
-            n = unique([up, -up])';
-            n = force_count(n, N0);
-        case 'usparse'
-            n = (0:N0 - 1)' * eta;
-        otherwise
-            error('geom_targetN: unknown type %s', type);
-    end
-    p = n * d0;
-    G.pos = p - (max(p) + min(p)) / 2;
-    G.N = numel(G.pos);
-    G.aperture = max(G.pos) - min(G.pos);
-    G.type = lower(type);
-    G.sparsity = G.aperture / ((G.N - 1) * d0);
-    G.min_gap  = min(diff(sort(G.pos)));
-end
-
-function [cl, wv, pslv] = sparse_metrics(pos, lambda)
-    d0 = lambda / 2;
-    Dm = round((pos(:) - pos(:).') / d0);
-    wv = [sum(Dm(:) == 1), sum(Dm(:) == 2), sum(Dm(:) == 3)];
-    G = 100;  Na = numel(pos);  U = zeros(Na);
-    for a = 1:Na
-        for b = 1:Na
-            kk = abs(Dm(a, b));
-            if kk == 0, U(a, b) = 1; elseif kk <= G, U(a, b) = 1 / kk; end
-        end
-    end
-    cl = norm(U - diag(diag(U)), 'fro') / max(norm(U, 'fro'), eps);
-    sg = linspace(-1, 1, 4001);
-    Bm = abs(sum(exp(1j * 2 * pi * (sg.' * pos(:).') / lambda), 2)) / Na;
-    [~, i0] = max(Bm);  i = i0;
-    while i + 1 <= numel(Bm) && Bm(i + 1) < Bm(i), i = i + 1; end
-    j = i0;
-    while j - 1 >= 1 && Bm(j - 1) < Bm(j), j = j - 1; end
-    Bm(j:i) = 0;  pslv = max(Bm);
-end
-
-function n = force_count(n, N0)
-    n = unique(sort(n(:)));
-    if numel(n) > N0
-        idx = unique(round(linspace(1, numel(n), N0)));
-        n = n(idx);
-        while numel(n) < N0
-            full = (min(n):max(n))';
-            cand = setdiff(full, n);
-            if isempty(cand), n = unique([n; max(n) + 1]); else n = unique([n; cand(1)]); end
-        end
-    elseif numel(n) < N0
-        n = [n; (max(n) + (1:(N0 - numel(n)))')];
-    end
-    n = unique(sort(n(:)));
-end
-
-function CA = coarray_setup(pos, lambda, mode)
-    if nargin < 3, mode = 'diff'; end
-    d0 = lambda / 2;
-    pos = pos(:);
-    if strcmpi(mode, 'sum')
-        Dm = round((pos + pos.') / d0);
-    else
-        Dm = round((pos - pos.') / d0);
-    end
-    CA.mode = lower(mode);
-    CA.lagvec = Dm(:);
-    [CA.uniq, ~, CA.ic] = unique(CA.lagvec);
-    CA.cont = longest_contig(CA.uniq);
-    [~, CA.loc] = ismember(CA.cont, CA.uniq);
-    CA.Nv    = numel(CA.cont);
-    CA.Nsub  = floor((CA.Nv + 1) / 2);
-    CA.DOF   = numel(CA.uniq);
-    CA.Nphys = numel(pos);
-    CA.d0    = d0;
-    CA.lambda = lambda;
-    CA.pos_v = CA.cont * d0;
-end
-
-function run = longest_contig(u)
-    u = sort(u(:));
-    bl = u(1);  bh = u(1);  cs = u(1);
-    for i = 2:numel(u)
-        if u(i) ~= u(i - 1) + 1
-            if (u(i - 1) - cs) > (bh - bl), bl = cs;  bh = u(i - 1);  end
-            cs = u(i);
-        end
-    end
-    if (u(end) - cs) > (bh - bl), bl = cs;  bh = u(end);  end
-    run = (bl:bh)';
-end
