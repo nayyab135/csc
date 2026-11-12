@@ -3,7 +3,14 @@
 %  No clear, no load, no functions -- it only uses the workspace data and
 %  redraws R0-R9. You can also paste this whole block into the Command Window.
 
-if ~exist('lambda', 'var'), lambda = 0.1; end   % wavelength (c0/fc = 3e8/3e9); only set if missing
+% --- constants / scalars not stored in the .mat (set only if missing) ---
+if ~exist('lambda', 'var'),      lambda   = 0.1;  end    % wavelength c0/fc = 3e8/3e9
+if ~exist('L', 'var'),           L        = 8;    end    % number of APs (R0 title only)
+if ~exist('usd_Pout', 'var'),    usd_Pout = 0.10; end    % R0 reference line only
+if ~exist('en_caseName', 'var'), en_caseName = {'Antenna-rich (K<N)', 'User-rich (K>N)'}; end
+nSchE = numel(en_names);  nCaseE = numel(en_N0);  nSNR = numel(SNR_dB);  nKsch = numel(Ksw_sch);
+[~, snr_ref_idx] = min(abs(SNR_dB - 10));
+
 si0 = snr_ref_idx;
 dXAP = 4;                                   % Cross-AP List detector index
 S_dense = 1; S_nestL = 2; S_nest = 3; S_dca = 4; S_uniL = 5; S_uni = 6;
@@ -21,6 +28,19 @@ for scE = 1:nSchE
 end
 gIdx = [S_dense S_nest S_uni];  gNm = {'Dense ULA', 'Nested', 'Uniform sparse'};
 gCol = {cDense, cNest, cUni};
+
+% --- rebuild the 3 geometries for R1/R2/R8 (Code S geom_targetN, inline) ---
+%  EN_geo is not stored in the .mat; rebuild from saved en_N0 and uspa_eta.
+N0 = en_N0(1);  d0 = lambda / 2;  gtypes = {'ula', 'nested', 'usparse'};  geo3 = cell(1, 3);
+for g = 1:3
+    switch gtypes{g}
+        case 'ula',     nn = (0:N0 - 1)';
+        case 'nested',  N1 = floor(N0 / 2);  N2 = N0 - N1;  nn = unique([(1:N1), (1:N2) * (N1 + 1)])';
+        case 'usparse', nn = (0:N0 - 1)' * uspa_eta;
+    end
+    pp = nn * d0;  pp = pp - (max(pp) + min(pp)) / 2;
+    geo3{g}.pos = pp;  geo3{g}.N = numel(pp);  geo3{g}.aperture = max(pp) - min(pp);
+end
 
 % ---- R0: the uniform-sparse design (Steps 1-3) ----
 figure('Name', 'R0 Uniform-sparse design (ambiguity budget)', 'Position', [30 30 1150 470]);
@@ -40,7 +60,7 @@ title('Widest resolvable spacing vs SNR'); legend('Location', 'best');
 % ---- R1: physical array and its difference co-array (co-array computed inline) ----
 figure('Name', 'R1 Geometry and difference co-array', 'Position', [30 30 1100 620]);
 for g = 1:3
-    G = EN_geo{gIdx(g), 1};
+    G = geo3{g};
     lags = unique(round((G.pos(:) - G.pos(:).') / (lambda / 2)));   % difference lags
     bk = [0; find(diff(lags) ~= 1); numel(lags)];                   % hole-free segments
     [~, mi] = max(diff(bk));  seg = lags(bk(mi) + 1 : bk(mi + 1));  % longest run
@@ -58,7 +78,7 @@ end
 figure('Name', 'R2 Beampattern and grating lobes', 'Position', [30 30 900 480]);
 hold on; box on; grid on;  sgb = linspace(-1, 1, 2001);
 for g = 1:3
-    pp = EN_geo{gIdx(g), 1}.pos(:);
+    pp = geo3{g}.pos(:);
     Bb = abs(sum(exp(1j * 2 * pi * (sgb.' * pp.') / lambda), 2)) / numel(pp);
     plot(sgb, 20 * log10(max(Bb, 1e-4)), 'Color', gCol{g}, 'LineWidth', 1.5, 'DisplayName', gNm{g});
 end
@@ -137,7 +157,7 @@ title(sprintf('Sum SE vs K at %d dB (N = %d)', SNR_dB(si0), en_N0(1))); legend('
 figure('Name', 'R8 Array hardware metrics', 'Position', [30 30 1200 440]);
 apv = zeros(3, 1); udv = zeros(3, 1); w1v = zeros(3, 1); clv = zeros(3, 1);
 for g = 1:3
-    pg = EN_geo{gIdx(g), 1}.pos;
+    pg = geo3{g}.pos;
     Dm = round((pg(:) - pg(:).') / (lambda / 2));
     w1v(g) = sum(Dm(:) == 1);
     Na = numel(pg);  U = zeros(Na);
@@ -148,7 +168,7 @@ for g = 1:3
         end
     end
     clv(g) = norm(U - diag(diag(U)), 'fro') / max(norm(U, 'fro'), eps);
-    apv(g) = EN_geo{gIdx(g), 1}.aperture;
+    apv(g) = geo3{g}.aperture;
     lags = unique(Dm(:));                                    % difference lags
     bk = [0; find(diff(lags) ~= 1); numel(lags)];            % hole-free segments
     udv(g) = max(diff(bk));                                  % longest run length
