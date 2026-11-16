@@ -1,22 +1,25 @@
 clear; close all; clc;
 %% ====================================================================
-%  CODE T : ARRAY COMPARISON AT EQUAL HARDWARE (built from Code R)
+%  CODE T : ARRAY COMPARISON IN A CROWDED CELL-FREE SYSTEM (from Code R)
 %  --------------------------------------------------------------------
-%  Focused study requested after the Code R / Code S review. Compares, at
-%  N = 32 physical antennas per AP and with CAPE channel estimation:
-%    1. ULA, d = lambda/2            dense reference
-%    2. ULA, d = 4 lambda            wide-spaced ULA (still a ULA)
-%    3. Nested array                 physical processing
+%  Crowded (loaded) cell-free uplink: N = 8 antennas per AP, K = 16 users,
+%  L = 8 APs, CAPE channel estimation, 16-QAM. Compares:
+%    1. ULA, d = lambda/2            dense reference (aperture 0.35 m)
+%    2. ULA, d = 4 lambda            wide-spaced ULA, aperture 2.8 m
+%    3. Nested array                 stretched to the same aperture (~2.8 m)
 %    4. Nested array + co-array      SAME antennas as 3, co-array processing
-%    5. Coprime array                physical processing
+%    5. Coprime array                stretched to the same aperture (~3.0 m)
 %    6. Coprime array + co-array     SAME antennas as 5, co-array processing
+%  SNR axis = received SNR per antenna at each user's strongest AP (uplink
+%  power control: every user scales its power so that this SNR equals the
+%  axis value). User clusters keep APs within 10 dB of the strongest AP.
 %  "Difference co-array" is a PROCESSING option of a sparse array, not a
 %  separate array: schemes 3/4 and 5/6 use identical antennas. Every scheme
 %  sees the same random drops, channels, pilots and noise in a setup
 %  (paired comparison), so a 3-vs-4 or 5-vs-6 difference is caused only by
 %  the co-array processing. The co-array MUSIC subarray is NOT capped here,
 %  so the co-array gets its full smoothed virtual aperture.
-%  Figures T1..T9. Results are saved to codeT_arraycomp_results.mat BEFORE
+%  Figures T1..T10. Results are saved to codeT_arraycomp_results.mat BEFORE
 %  plotting; plot_codeT_figures.m redraws the figures without rerunning.
 %% ====================================================================
 
@@ -588,38 +591,59 @@ nNF_total = 0;
 ulaw_d_lambda = 4;                    % wide-ULA spacing in wavelengths
 ulaw_eta      = 2 * ulaw_d_lambda;    % same spacing in units of d0 = lambda/2
 ca_Nsub_max   = 1000;                 % no cap: full smoothed virtual aperture for the co-array
+sp_equal_aperture = true;             % stretch nested/coprime to the wide-ULA aperture
+                                      % (false -> classic lambda/2 grid, ~1 m, almost no near field)
+
+% ---- [CODE T] crowded cell-free setting (few antennas per AP, many users) ----
+modOrder = 16;                        % 16-QAM (QPSK reaches zero errors by 4-8 dB: no visible waterfall)
+clu_div  = 10;                        % user cluster: APs within 10 dB of the strongest AP (was 3 dB)
+SNR_dB   = 0:4:28;                    % received SNR per antenna at the strongest AP [dB]
+SNR_lin  = 10.^(SNR_dB / 10);
+nSNR     = numel(SNR_dB);
+[~, snr_ref_idx] = min(abs(SNR_dB - 10));
+snr_ref_dB = SNR_dB(snr_ref_idx);
 
 eqN_study   = true;
 en_names    = {'ULA lambda/2 + CAPE', sprintf('ULA %g lambda + CAPE', ulaw_d_lambda), 'Nested + CAPE', ...
                'Nested + co-array + CAPE', 'Coprime + CAPE', 'Coprime + co-array + CAPE'};
 en_leg      = {'ULA (\lambda/2)', sprintf('ULA (%g\\lambda)', ulaw_d_lambda), 'Nested', ...
                'Nested + co-array', 'Coprime', 'Coprime + co-array'};
+if sp_equal_aperture
+    en_leg(3:6) = {'Nested (stretched)', 'Nested (stretched) + co-array', ...
+                   'Coprime (stretched)', 'Coprime (stretched) + co-array'};
+end
 en_geom     = {'ula', 'ulaw', 'nested', 'nested', 'coprime', 'coprime'};
 en_idea     = [0 0 0 1 0 1];   % 1 = add difference co-array processing (same antennas)
 en_cape     = [1 1 1 1 1 1];   % CAPE for every scheme: the array is the only variable
 en_arr      = [1 2 3 3 4 4];   % physical array of each scheme (1 ULA, 2 wide ULA, 3 nested, 4 coprime)
 nSchE       = numel(en_names);
-en_caseName = {'Antenna-rich (K<N)', 'User-rich (K>N)'};
-en_N0       = [32 32];         % 32 PHYSICAL antennas per AP, both cases
-en_K        = [8 40];          % Case 1 K = 8 (K < N), Case 2 K = 40 (K > N)
+en_caseName = {'Crowded (N = 8, K = 16)'};
+en_N0       = 8;               % 8 PHYSICAL antennas per AP
+en_K        = 16;              % 16 users (K > N: loaded cell-free system)
 nCaseE      = numel(en_N0);
-nSetE       = 10;              % random AP/user drops: 6 = quick look (as Code R), >= 10 for the paper
-nRealE      = 2;
-nSymE       = 100;
+nSetE       = 10;              % random AP/user drops (>= 10 for the paper; 4 for a quick look)
+nRealE      = 4;               % channel realisations per drop
+nSymE       = 800;             % symbols per realisation: 10 x 4 x 800 x 16 users x 4 bits
+                               % = 2.0e6 bits per point, enough to show BER ~1e-5
+if sp_equal_aperture           % target aperture = aperture of the wide ULA
+    sp_Dtgt = (en_N0(1) - 1) * ulaw_eta * lambda / 2;
+else
+    sp_Dtgt = [];
+end
 
 % ---- prebuild geometry, polar dictionary and co-arrays per (scheme, case) ----
 EN_geo = cell(nSchE, nCaseE);  EN_PD = cell(nSchE, nCaseE);
 EN_CA  = cell(nSchE, nCaseE);  EN_CAs = cell(nSchE, nCaseE);
 for caE = 1:nCaseE
     for scE = 1:nSchE
-        Gtmp = geom_targetN(en_geom{scE}, en_N0(caE), lambda, ulaw_eta);
+        Gtmp = geom_targetN(en_geom{scE}, en_N0(caE), lambda, ulaw_eta, sp_Dtgt);
         EN_geo{scE, caE} = Gtmp;
         pdE = build_polar_dict(Gtmp.pos, lambda, pd_os_ang, pd_q_max, pd_n_q, pd_phase_step, pd_nS_min);
         pdE.smax = pd_smax;  pdE.stop = pd_stop;  pdE.nref = pd_nref;  pdE.nstart = pd_nstart;
         EN_PD{scE, caE} = pdE;
-        EN_CA{scE, caE}  = coarray_setup(Gtmp.pos, lambda, 'diff');
+        EN_CA{scE, caE}  = coarray_setup(Gtmp.pos, lambda, 'diff', Gtmp.unit);   % co-array on the array's own grid
         if en_idea(scE) == 3
-            EN_CAs{scE, caE} = coarray_setup(Gtmp.pos, lambda, 'sum');
+            EN_CAs{scE, caE} = coarray_setup(Gtmp.pos, lambda, 'sum', Gtmp.unit);
         else
             EN_CAs{scE, caE} = [];
         end
@@ -663,8 +687,10 @@ parfor ns = 1:nSetE
         UEm = mod(real(UEp), squareLen) + 1j * mod(imag(UEp), squareLen);
         APw = wrap_images(APp, squareLen, wrap_fix);
         [d3, sE, phL, thL, bet] = link_geometry(APw, UEp, hDiff, fc_GHz, hBS, hUT, c0, noisePow_dBm);
+        bet = bet ./ max(bet, [], 1);   % [CODE T] uplink power control: received SNR at each
+                                         % user's strongest AP = the SNR axis value
         EPc = struct('nReal', nRealE, 'nSym', nSymE, 'M', M_lst, 'dth', d_th, ...
-                     'maxBr', maxBr, 'mod', modOrder, 'prelog', prelog, 'eps_NF', eps_NF);
+                     'maxBr', maxBr, 'mod', modOrder, 'prelog', 1 - Kc / tau_c, 'eps_NF', eps_NF);   % pilots: tau_p = Kc
         for scE = 1:nSchE
             Gc = EN_geo{scE, caE};
             ST = array_stats(Gc, d3, sE, phL, thL, bet, lambda, eps_NF, ASD_varphi, ASD_theta, clu_div);
@@ -705,7 +731,7 @@ end
 % ---- [CODE T] user-count sweep at the reference SNR, all six schemes ----
 % N is fixed at en_N0(1) = 32, so the prebuilt geometry, polar dictionary and
 % co-array of case 1 are reused (identical to rebuilding them).
-Ksw     = [4 8 16 24 32 40 48];
+Ksw     = [8 12 16 20 24];       % all K >= N = 8: crowded
 Ksw_sch = 1:nSchE;
 nKsw    = numel(Ksw);  nKsch = numel(Ksw_sch);
 EN_Kbe  = zeros(nKsch, nKsw, nSetE);    % BER, Cross-AP detector
@@ -722,8 +748,10 @@ parfor ns = 1:nSetE
         UEm = mod(real(UEp), squareLen) + 1j * mod(imag(UEp), squareLen);
         APw = wrap_images(APp, squareLen, wrap_fix);
         [d3, sE, phL, thL, bet] = link_geometry(APw, UEp, hDiff, fc_GHz, hBS, hUT, c0, noisePow_dBm);
+        bet = bet ./ max(bet, [], 1);   % [CODE T] uplink power control: received SNR at each
+                                         % user's strongest AP = the SNR axis value
         EPc = struct('nReal', nRealE, 'nSym', nSymE, 'M', M_lst, 'dth', d_th, ...
-                     'maxBr', maxBr, 'mod', modOrder, 'prelog', prelog, 'eps_NF', eps_NF);
+                     'maxBr', maxBr, 'mod', modOrder, 'prelog', 1 - Kc / tau_c, 'eps_NF', eps_NF);   % pilots: tau_p = Kc
         for jj = 1:nKsch
             scE = Ksw_sch(jj);
             Gc  = EN_geo{scE, 1};
@@ -750,20 +778,23 @@ if eqN_study
     % [CODE T] save BEFORE plotting, so a plotting problem can never lose the run
     save('codeT_arraycomp_results.mat', 'SNR_dB', 'snr_ref_idx', 'lambda', 'L', ...
          'en_names', 'en_leg', 'en_geom', 'en_idea', 'en_cape', 'en_arr', 'en_caseName', ...
-         'en_N0', 'en_K', 'ulaw_d_lambda', 'nSetE', 'EN_geo', ...
+         'en_N0', 'en_K', 'ulaw_d_lambda', 'sp_equal_aperture', 'modOrder', 'clu_div', ...
+         'nSetE', 'nRealE', 'nSymE', 'EN_geo', ...
          'EN_nmse', 'EN_be', 'EN_sum', 'EN_loc', 'EN_time', 'EN_fh', 'EN_nf', 'EN_seD', ...
          'Ksw', 'Ksw_sch', 'EN_Kbe', 'EN_Ksum');
     fprintf('\nResults saved to codeT_arraycomp_results.mat\n');
 
-    %% ===================== [CODE T] FIGURES T1-T9 =====================
+    %% ===================== [CODE T] FIGURES T1-T10 =====================
     %  Every scheme uses CAPE. Colour = physical array. Solid line + filled
     %  marker = processing on the PHYSICAL array. Dashed line + open marker =
     %  the SAME antennas with difference co-array processing added.
+    %  SNR axis = received SNR per antenna at each user's strongest AP.
     tNs   = numel(en_names);  tNc = numel(en_N0);  tNsnr = numel(SNR_dB);
     tSet  = size(EN_be, 5);
     [~, tSi] = min(abs(SNR_dB - 10));             % 10 dB reference point
     tDet  = 4;                                     % Cross-AP List detector
-    tArrNm  = {'ULA (\lambda/2)', en_leg{2}, 'Nested', 'Coprime'};
+    tXl   = 'SNR [dB] (received, strongest AP)';
+    tArrNm  = {'ULA (\lambda/2)', en_leg{2}, en_leg{3}, en_leg{5}};
     tArrSch = [1 2 3 5];                           % one scheme per physical array
     tArrCol = {[0.35 0.35 0.35], [0.00 0.45 0.00], [0.00 0.10 0.55], [0.50 0.10 0.60]};
     tCol  = tArrCol(en_arr);
@@ -772,6 +803,7 @@ if eqN_study
     tMfc  = tCol;                    tMfc(en_idea > 0) = {'none'};
     tPair = [3 4; 5 6];                            % [physical, co-array] pairs
     tPairNm = {'Nested', 'Coprime'};
+    tW    = 80 + 560 * tNc;                        % figure width for tNc case panels
     mNM = mean(EN_nmse, 4);  mBE = mean(EN_be, 5);  mSU = mean(EN_sum, 5);
     mLC = nan(tNs, tNc, tNsnr);
     for sc = 1:tNs
@@ -786,18 +818,19 @@ if eqN_study
     % ---- T1: physical arrays and their hole-free difference co-arrays ----
     figure('Name', 'T1 Physical arrays and difference co-arrays', 'Position', [30 30 1100 760]);
     for a = 1:4
-        pa = EN_geo{tArrSch(a), 1}.pos(:);
-        lg = unique(round((pa - pa.') / (lambda / 2)));
+        Ga = EN_geo{tArrSch(a), 1};  pa = Ga.pos(:);
+        uu = lambda / 2;  if isfield(Ga, 'unit'), uu = Ga.unit; end
+        lg = unique(round((pa - pa.') / uu));
         bk = [0; find(diff(lg) ~= 1); numel(lg)];  [nv, mi] = max(diff(bk));
         cont = lg(bk(mi) + 1:bk(mi + 1));
         ap = max(pa) - min(pa);
         subplot(4, 1, a); hold on; box on; grid on;
         plot(pa, ones(size(pa)), 'o', 'Color', tArrCol{a}, 'MarkerFaceColor', tArrCol{a}, 'MarkerSize', 5);
-        plot(cont * lambda / 2, 0.6 * ones(size(cont)), '.', 'Color', tArrCol{a}, 'MarkerSize', 6);
+        plot(cont * uu, 0.6 * ones(size(cont)), '.', 'Color', tArrCol{a}, 'MarkerSize', 6);
         ylim([0.3 1.3]); set(gca, 'YTick', [0.6 1], 'YTickLabel', {'virtual', 'physical'});
         xlabel('position along the array [m]');
-        title(sprintf('%s:  N = %d,  aperture = %.2f m,  hole-free co-array = %d lags,  Rayleigh = %.0f m', ...
-              tArrNm{a}, numel(pa), ap, nv, 2 * ap^2 / lambda));
+        title(sprintf('%s:  N = %d,  aperture = %.2f m,  grid %.1f\\lambda,  hole-free co-array = %d,  Rayleigh = %.0f m', ...
+              tArrNm{a}, numel(pa), ap, uu / lambda, nv, 2 * ap^2 / lambda));
     end
 
     % ---- T2: far-field beampattern (where the grating lobes are) ----
@@ -810,15 +843,15 @@ if eqN_study
         grid on; box on; ylim([-40 0]); xlabel('sin(\theta)'); ylabel('beampattern [dB]'); title(tArrNm{a});
     end
 
-    % ---- T3-T5: NMSE, BER and sum SE vs SNR (all six schemes, both cases) ----
+    % ---- T3-T5: NMSE, BER and sum SE vs SNR (all six schemes) ----
     tMet = {mNM, mBE, mSU};
     tNm  = {'T3 Channel NMSE vs SNR', 'T4 BER vs SNR', 'T5 Sum SE vs SNR'};
     tYl  = {'channel NMSE', 'BER (Cross-AP List)', 'sum SE [bit/s/Hz]'};
     tLoc = {'southwest', 'southwest', 'northwest'};
     for f = 1:3
-        figure('Name', tNm{f}, 'Position', [30 30 1150 470]);
+        figure('Name', tNm{f}, 'Position', [30 30 tW 470]);
         for ca = 1:tNc
-            subplot(1, 2, ca); hold on; box on; grid on;
+            subplot(1, tNc, ca); hold on; box on; grid on;
             for sc = 1:tNs
                 if f == 1
                     y = squeeze(tMet{f}(sc, ca, :));
@@ -830,8 +863,9 @@ if eqN_study
                      'LineWidth', 1.5, 'DisplayName', en_leg{sc});
             end
             if f < 3, set(gca, 'YScale', 'log'); end
-            xlabel('SNR [dB]'); ylabel(tYl{f});
-            title(sprintf('%s (K = %d), all with CAPE', en_caseName{ca}, en_K(ca)));
+            if f == 2, ylim([1e-6 1]); end
+            xlabel(tXl); ylabel(tYl{f});
+            title(sprintf('%s, all with CAPE', en_caseName{ca}));
             legend('Location', tLoc{f});
         end
     end
@@ -859,11 +893,11 @@ if eqN_study
     end
 
     % ---- T7: does co-array processing help? paired difference, same antennas ----
-    figure('Name', 'T7 Effect of co-array processing (paired)', 'Position', [30 30 1150 760]);
+    figure('Name', 'T7 Effect of co-array processing (paired)', 'Position', [30 30 tW 760]);
     tYl7 = {'BER change with co-array [%]  (<0 = better)', 'sum-SE change with co-array [%]  (>0 = better)'};
     for row = 1:2
         for ca = 1:tNc
-            subplot(2, 2, (row - 1) * 2 + ca); hold on; box on; grid on;
+            subplot(2, tNc, (row - 1) * tNc + ca); hold on; box on; grid on;
             plot(SNR_dB, zeros(size(SNR_dB)), 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
             ttl = '';
             for pr = 1:2
@@ -881,30 +915,31 @@ if eqN_study
                 set(hEb, 'Color', tCol{a}, 'MarkerFaceColor', tCol{a}, 'LineWidth', 1.4, 'DisplayName', tPairNm{pr});
                 ttl = [ttl sprintf('  %s %d%%', tPairNm{pr}, round(100 * mean(Dd(:) == 0)))]; %#ok<AGROW>
             end
-            xlabel('SNR [dB]'); ylabel(tYl7{row});
-            title({sprintf('%s (K = %d)', en_caseName{ca}, en_K(ca)), ['identical:' ttl]});
+            xlabel(tXl); ylabel(tYl7{row});
+            title({en_caseName{ca}, ['identical:' ttl]});
             legend('Location', 'best');
         end
     end
 
     % ---- T8: localisation error vs SNR ----
-    figure('Name', 'T8 Localisation error vs SNR', 'Position', [30 30 1150 470]);
+    figure('Name', 'T8 Localisation error vs SNR', 'Position', [30 30 tW 470]);
     for ca = 1:tNc
-        subplot(1, 2, ca); hold on; box on; grid on;
+        subplot(1, tNc, ca); hold on; box on; grid on;
         for sc = 1:tNs
             plot(SNR_dB, squeeze(mLC(sc, ca, :)), [tLs{sc} tMk{sc}], 'Color', tCol{sc}, ...
                  'MarkerFaceColor', tMfc{sc}, 'LineWidth', 1.5, 'DisplayName', en_leg{sc});
         end
-        set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('median position error [m]');
-        title(sprintf('%s (K = %d)', en_caseName{ca}, en_K(ca))); legend('Location', 'northeast');
+        set(gca, 'YScale', 'log'); xlabel(tXl); ylabel('median position error [m]');
+        title(en_caseName{ca}); legend('Location', 'northeast');
     end
 
     % ---- T9: array hardware metrics ----
     tAp = zeros(4, 1);  tUd = zeros(4, 1);  tW1 = zeros(4, 1);  tCl = zeros(4, 1);
     for a = 1:4
-        pa = EN_geo{tArrSch(a), 1}.pos(:);
-        Dm = round((pa - pa.') / (lambda / 2));
-        lg = unique(Dm(:));  bk = [0; find(diff(lg) ~= 1); numel(lg)];
+        Ga = EN_geo{tArrSch(a), 1};  pa = Ga.pos(:);
+        uu = lambda / 2;  if isfield(Ga, 'unit'), uu = Ga.unit; end
+        Dm = round((pa - pa.') / (lambda / 2));            % physical distance in half-wavelengths
+        lg = unique(round((pa - pa.') / uu));  bk = [0; find(diff(lg) ~= 1); numel(lg)];
         tAp(a) = max(pa) - min(pa);  tUd(a) = max(diff(bk));  tW1(a) = sum(Dm(:) == 1);
         U = zeros(numel(pa));  nz = (Dm ~= 0) & (abs(Dm) <= 100);
         U(nz) = 1 ./ abs(Dm(nz));  U(Dm == 0) = 1;
@@ -919,14 +954,29 @@ if eqN_study
         for a = 1:4
             bar(a, tVal{m}(a), 0.6, 'FaceColor', tArrCol{a});
         end
-        set(gca, 'XTick', 1:4, 'XTickLabel', tArrNm);  xlim([0.4 4.6]);
+        set(gca, 'XTick', 1:4, 'XTickLabel', {'ULA \lambda/2', 'ULA wide', 'Nested', 'Coprime'});  xlim([0.4 4.6]);
         ylabel(tYl9{m});  title(tTt9{m});
+    end
+
+    % ---- T10: the four detectors for each physical array (first case) ----
+    tDn = {'Linear MMSE', 'Hard SIC', 'List SIC', 'Cross-AP List'};
+    tDs = {':', '-.', '--', '-'};
+    figure('Name', 'T10 BER of the four detectors', 'Position', [30 30 1100 760]);
+    for a = 1:4
+        sc = tArrSch(a);
+        subplot(2, 2, a); hold on; box on; grid on;
+        for d = 1:4
+            plot(SNR_dB, max(squeeze(mBE(d, sc, 1, :)), 1e-6), [tDs{d} tMk{sc}], 'Color', tArrCol{a}, ...
+                 'MarkerFaceColor', tArrCol{a}, 'LineWidth', 1.3, 'DisplayName', tDn{d});
+        end
+        set(gca, 'YScale', 'log'); ylim([1e-6 1]); xlabel(tXl); ylabel('BER');
+        title(sprintf('%s, %s', tArrNm{a}, en_caseName{1})); legend('Location', 'southwest');
     end
 
     % ---- console summary at 10 dB ----
     for ca = 1:tNc
-        fprintf('\n=== [CODE T] %s, K = %d, at %d dB (mean +- std. error over %d setups) ===\n', ...
-                en_caseName{ca}, en_K(ca), SNR_dB(tSi), tSet);
+        fprintf('\n=== [CODE T] %s, at %d dB (mean +- std. error over %d setups) ===\n', ...
+                en_caseName{ca}, SNR_dB(tSi), tSet);
         fprintf('%-28s %10s %22s %18s %10s\n', 'scheme', 'NMSE', 'BER (Cross-AP List)', 'sum SE', 'loc [m]');
         for sc = 1:tNs
             be = reshape(EN_be(tDet, sc, ca, tSi, :), [], 1);
@@ -939,6 +989,10 @@ if eqN_study
             Dd = EN_be(tDet, b, ca, :, :) - EN_be(tDet, a, ca, :, :);
             fprintf('  %s: co-array vs physical processing identical in %d%% of (SNR, setup) points\n', ...
                     tPairNm{pr}, round(100 * mean(Dd(:) == 0)));
+        end
+        fprintf('  Cross-AP List BER vs SNR (all schemes):\n');
+        for sc = 1:tNs
+            fprintf('    %-28s', en_names{sc});  fprintf(' %9.2e', squeeze(mBE(tDet, sc, ca, :)));  fprintf('\n');
         end
     end
 end
@@ -2020,7 +2074,7 @@ function G = array_geometry(type, N_ref, lambda, eta, M, Nc, Lc, Lc_sa, nN1, nN2
     G.min_gap = min(gaps) * d0;
 end
 
-function G = geom_targetN(type, N0, lambda, eta)
+function G = geom_targetN(type, N0, lambda, eta, Dtgt)
 % [CODE G] build each array type with EXACTLY N0 PHYSICAL elements on the
 % lambda/2 grid, so every scheme is compared at equal hardware. The virtual
 % (co-)array that results is whatever each geometry yields; only the physical
@@ -2029,6 +2083,7 @@ function G = geom_targetN(type, N0, lambda, eta)
 % extended coprime array of Pal & Vaidyanathan.
     if nargin < 4 || isempty(eta), eta = 8; end
     d0 = lambda / 2;
+    u  = 1;                       % [CODE T] grid unit in half-wavelengths
     switch lower(type)
         case 'ula'
             n = (0:N0 - 1)';
@@ -2050,13 +2105,14 @@ function G = geom_targetN(type, N0, lambda, eta)
             % [CODE T] wide-spaced ULA: uniform spacing eta*d0 (eta = 8 ->
             % d = 4 lambda). Still a uniform linear array; the wide spacing
             % enlarges the aperture at the same N and creates grating lobes.
-            n = (0:N0 - 1)' * eta;
+            n = (0:N0 - 1)';  u = eta;
         case 'coprime'
             % [CODE T] extended coprime array (Pal & Vaidyanathan 2011): Nc
             % elements at spacing Mc*d0 and 2*Mc elements at spacing Nc*d0,
             % Mc < Nc coprime, sharing the origin -> 2*Mc + Nc - 1 = N0. Among
             % the valid pairs the one with the longest hole-free co-array
-            % (Mc*Nc + Mc - 1 lags each side) is used: (8, 17) for N0 = 32.
+            % (Mc*Nc + Mc - 1 lags each side) is used: (2, 5) for N0 = 8,
+            % (8, 17) for N0 = 32.
             best = -1;  Mc = 0;  Nc = 0;
             for Mt = 2:floor(N0 / 2)
                 Nt = N0 + 1 - 2 * Mt;
@@ -2069,8 +2125,15 @@ function G = geom_targetN(type, N0, lambda, eta)
         otherwise
             error('geom_targetN: unknown type %s', type);
     end
-    p = n * d0;
+    % [CODE T] stretch nested/coprime onto a coarser grid so that their aperture
+    % matches Dtgt (the wide-ULA aperture). All positions then lie on a grid of
+    % u half-wavelengths, so for u > 1 the array also has grating lobes.
+    if nargin >= 5 && ~isempty(Dtgt) && Dtgt > 0 && any(strcmpi(type, {'nested', 'coprime'}))
+        u = max(1, round(Dtgt / ((max(n) - min(n)) * d0)));
+    end
+    p = n * u * d0;
     G.pos = p - (max(p) + min(p)) / 2;
+    G.unit = u * d0;              % grid unit [m] (co-array lags are multiples of it)
     G.N = numel(G.pos);
     G.aperture = max(G.pos) - min(G.pos);
     G.type = lower(type);
@@ -2664,7 +2727,7 @@ end
 %  Pal & Vaidyanathan (IEEE TSP 2010); used for communications by
 %  Pinto & de Lamare (arXiv:2312.06033).
 %% ====================================================================
-function CA = coarray_setup(pos, lambda, mode)
+function CA = coarray_setup(pos, lambda, mode, unit)
 % Co-array of a linear array on the lambda/2 grid.
 %   mode = 'diff' (default): lags x_m - x_n  -> DIFFERENCE co-array (the standard
 %          Pinto building block; comes from the Hermitian covariance R = E[y y^H]).
@@ -2672,7 +2735,8 @@ function CA = coarray_setup(pos, lambda, mode)
 %          from the complementary moment Rt = E[y y^T]). For near-field phase and
 %          deterministic pilots the sum lags carry extra (range) structure.
     if nargin < 3, mode = 'diff'; end
-    d0 = lambda / 2;
+    if nargin < 4 || isempty(unit), unit = lambda / 2; end   % [CODE T] grid of the array
+    d0 = unit;
     pos = pos(:);
     % Lags come from position SUMS/DIFFERENCES: the array is centred, so pos/d0
     % can be half-integer and rounding it would corrupt the lag map, while sums

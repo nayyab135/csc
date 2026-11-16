@@ -9,30 +9,35 @@ from matplotlib.patches import FancyBboxPatch
 OUT = '/home/user/csc/docs/'
 lam = 0.1
 d0 = lam / 2
-N0 = 32
+N0 = 8
+DT = (N0 - 1) * 8 * d0          # wide-ULA aperture = target aperture
 COL = {'ula': '#595959', 'ulaw': '#007300', 'nested': '#001a8c', 'coprime': '#801a99'}
-NAME = {'ula': r'ULA, $d=\lambda/2$', 'ulaw': r'ULA, $d=4\lambda$', 'nested': 'Nested', 'coprime': 'Coprime (M=8, N=17)'}
+NAME = {'ula': r'ULA, $d=\lambda/2$', 'ulaw': r'ULA, $d=4\lambda$', 'nested': r'Nested 4+4, stretched to a $1.5\lambda$ grid', 'coprime': r'Coprime (2,5), stretched to a $2\lambda$ grid'}
 
 
 def geo(t):
+    """The four 8-antenna arrays exactly as Code T builds them (equal aperture ~2.8 m)."""
+    u = 1
     if t == 'ula':
         n = np.arange(N0)
     elif t == 'ulaw':
-        n = np.arange(N0) * 8
+        n = np.arange(N0)
+        u = 8
     elif t == 'nested':
-        n1 = N0 // 2
-        n = np.unique(np.r_[np.arange(1, n1 + 1), np.arange(1, N0 - n1 + 1) * (n1 + 1)])
+        n = np.unique(np.r_[np.arange(1, 5), np.arange(1, 5) * 5])
     else:
-        n = np.unique(np.r_[np.arange(17) * 8, np.arange(16) * 17])
-    p = n * d0
-    return p - (p.max() + p.min()) / 2
+        n = np.unique(np.r_[np.arange(5) * 2, np.arange(4) * 5])
+    if t in ('nested', 'coprime'):
+        u = max(1, round(DT / ((n.max() - n.min()) * d0)))
+    p = n * u * d0
+    return p - (p.max() + p.min()) / 2, u * d0
 
 
-def holefree(p):
-    lg = np.unique(np.round((p[:, None] - p[None, :]) / d0).astype(int))
+def holefree(p, uu):
+    lg = np.unique(np.round((p[:, None] - p[None, :]) / uu).astype(int))
     br = np.r_[0, np.where(np.diff(lg) != 1)[0] + 1, len(lg)]
     i = np.argmax(np.diff(br))
-    return lg[br[i]:br[i + 1]] * d0
+    return lg[br[i]:br[i + 1]] * uu
 
 
 types = ['ula', 'ulaw', 'nested', 'coprime']
@@ -40,15 +45,15 @@ types = ['ula', 'ulaw', 'nested', 'coprime']
 # ---- Fig 1: layouts + hole-free co-arrays ----
 fig, ax = plt.subplots(4, 1, figsize=(9, 6.2), sharex=True)
 for a, t in zip(ax, types):
-    p = geo(t)
-    v = holefree(p)
+    p, uu = geo(t)
+    v = holefree(p, uu)
     a.plot(v, 0.55 * np.ones_like(v), '|', color=COL[t], ms=7, alpha=0.6)
     a.plot(p, np.ones_like(p), 'o', color=COL[t], ms=4.5)
     a.set_ylim(0.3, 1.3)
     a.set_yticks([0.55, 1])
     a.set_yticklabels(['virtual\n(hole-free)', 'physical'], fontsize=7.5)
     ap = p.max() - p.min()
-    a.set_title(f'{NAME[t]}:  32 antennas, aperture {ap:.2f} m, hole-free co-array {len(v)} lags',
+    a.set_title(f'{NAME[t]}:  8 antennas, aperture {ap:.2f} m, Rayleigh {2 * ap**2 / lam:.0f} m',
                 fontsize=9, loc='left')
     a.grid(alpha=0.3)
 ax[-1].set_xlabel('position along the array [m]')
@@ -60,7 +65,7 @@ plt.close(fig)
 fig, ax = plt.subplots(2, 2, figsize=(9, 5.2), sharey=True)
 sg = np.linspace(-1, 1, 8001)
 for a, t in zip(ax.ravel(), types):
-    p = geo(t)
+    p, _ = geo(t)
     B = np.abs(np.exp(1j * 2 * np.pi * np.outer(sg, p) / lam).sum(1)) / len(p)
     a.plot(sg, 20 * np.log10(np.maximum(B, 1e-4)), color=COL[t], lw=0.9)
     a.set_ylim(-40, 2)
@@ -89,7 +94,7 @@ def arrow(x1, y1, x2, y2):
     ax.annotate('', xy=(x2, y2), xytext=(x1, y1), arrowprops=dict(arrowstyle='->', lw=0.9, color='#333333'))
 
 
-box(1, 15, 13, 10, 'SAME 32\nphysical antennas\n(nested array)', '#dfe6f7')
+box(1, 15, 13, 10, 'SAME 8\nphysical antennas\n(nested array)', '#dfe6f7')
 box(20, 27, 20, 9, 'pilot observation\nof each user\n(physical array)', '#eef2fb')
 box(20, 3, 20, 10, 'co-array branch:\ncovariance -> vectorize ->\nvirtual array -> MUSIC', '#fbe9d9')
 box(46, 27, 18, 9, 'candidate positions\n(local + CAPE)', '#eef2fb')

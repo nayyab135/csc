@@ -1,4 +1,4 @@
-%% PLOT_CODET_FIGURES  Redraw Code T figures T1-T9 without rerunning the simulation.
+%% PLOT_CODET_FIGURES  Redraw Code T figures T1-T10 without rerunning the simulation.
 %  Uses the variables already in the workspace after Code_T_ArrayComparison.m.
 %  If they are not there (new MATLAB session), it loads them from
 %  codeT_arraycomp_results.mat. It never clears the workspace.
@@ -6,15 +6,17 @@
 if ~exist('EN_be', 'var') || ~exist('EN_geo', 'var') || ~exist('en_leg', 'var')
     load('codeT_arraycomp_results.mat');
 end
-%% ===================== [CODE T] FIGURES T1-T9 =====================
+%% ===================== [CODE T] FIGURES T1-T10 =====================
 %  Every scheme uses CAPE. Colour = physical array. Solid line + filled
 %  marker = processing on the PHYSICAL array. Dashed line + open marker =
 %  the SAME antennas with difference co-array processing added.
+%  SNR axis = received SNR per antenna at each user's strongest AP.
 tNs   = numel(en_names);  tNc = numel(en_N0);  tNsnr = numel(SNR_dB);
 tSet  = size(EN_be, 5);
 [~, tSi] = min(abs(SNR_dB - 10));             % 10 dB reference point
 tDet  = 4;                                     % Cross-AP List detector
-tArrNm  = {'ULA (\lambda/2)', en_leg{2}, 'Nested', 'Coprime'};
+tXl   = 'SNR [dB] (received, strongest AP)';
+tArrNm  = {'ULA (\lambda/2)', en_leg{2}, en_leg{3}, en_leg{5}};
 tArrSch = [1 2 3 5];                           % one scheme per physical array
 tArrCol = {[0.35 0.35 0.35], [0.00 0.45 0.00], [0.00 0.10 0.55], [0.50 0.10 0.60]};
 tCol  = tArrCol(en_arr);
@@ -23,6 +25,7 @@ tMk   = {'d', 'o', 's', 's', '^', '^'};
 tMfc  = tCol;                    tMfc(en_idea > 0) = {'none'};
 tPair = [3 4; 5 6];                            % [physical, co-array] pairs
 tPairNm = {'Nested', 'Coprime'};
+tW    = 80 + 560 * tNc;                        % figure width for tNc case panels
 mNM = mean(EN_nmse, 4);  mBE = mean(EN_be, 5);  mSU = mean(EN_sum, 5);
 mLC = nan(tNs, tNc, tNsnr);
 for sc = 1:tNs
@@ -37,18 +40,19 @@ end
 % ---- T1: physical arrays and their hole-free difference co-arrays ----
 figure('Name', 'T1 Physical arrays and difference co-arrays', 'Position', [30 30 1100 760]);
 for a = 1:4
-    pa = EN_geo{tArrSch(a), 1}.pos(:);
-    lg = unique(round((pa - pa.') / (lambda / 2)));
+    Ga = EN_geo{tArrSch(a), 1};  pa = Ga.pos(:);
+    uu = lambda / 2;  if isfield(Ga, 'unit'), uu = Ga.unit; end
+    lg = unique(round((pa - pa.') / uu));
     bk = [0; find(diff(lg) ~= 1); numel(lg)];  [nv, mi] = max(diff(bk));
     cont = lg(bk(mi) + 1:bk(mi + 1));
     ap = max(pa) - min(pa);
     subplot(4, 1, a); hold on; box on; grid on;
     plot(pa, ones(size(pa)), 'o', 'Color', tArrCol{a}, 'MarkerFaceColor', tArrCol{a}, 'MarkerSize', 5);
-    plot(cont * lambda / 2, 0.6 * ones(size(cont)), '.', 'Color', tArrCol{a}, 'MarkerSize', 6);
+    plot(cont * uu, 0.6 * ones(size(cont)), '.', 'Color', tArrCol{a}, 'MarkerSize', 6);
     ylim([0.3 1.3]); set(gca, 'YTick', [0.6 1], 'YTickLabel', {'virtual', 'physical'});
     xlabel('position along the array [m]');
-    title(sprintf('%s:  N = %d,  aperture = %.2f m,  hole-free co-array = %d lags,  Rayleigh = %.0f m', ...
-          tArrNm{a}, numel(pa), ap, nv, 2 * ap^2 / lambda));
+    title(sprintf('%s:  N = %d,  aperture = %.2f m,  grid %.1f\\lambda,  hole-free co-array = %d,  Rayleigh = %.0f m', ...
+          tArrNm{a}, numel(pa), ap, uu / lambda, nv, 2 * ap^2 / lambda));
 end
 
 % ---- T2: far-field beampattern (where the grating lobes are) ----
@@ -61,15 +65,15 @@ for a = 1:4
     grid on; box on; ylim([-40 0]); xlabel('sin(\theta)'); ylabel('beampattern [dB]'); title(tArrNm{a});
 end
 
-% ---- T3-T5: NMSE, BER and sum SE vs SNR (all six schemes, both cases) ----
+% ---- T3-T5: NMSE, BER and sum SE vs SNR (all six schemes) ----
 tMet = {mNM, mBE, mSU};
 tNm  = {'T3 Channel NMSE vs SNR', 'T4 BER vs SNR', 'T5 Sum SE vs SNR'};
 tYl  = {'channel NMSE', 'BER (Cross-AP List)', 'sum SE [bit/s/Hz]'};
 tLoc = {'southwest', 'southwest', 'northwest'};
 for f = 1:3
-    figure('Name', tNm{f}, 'Position', [30 30 1150 470]);
+    figure('Name', tNm{f}, 'Position', [30 30 tW 470]);
     for ca = 1:tNc
-        subplot(1, 2, ca); hold on; box on; grid on;
+        subplot(1, tNc, ca); hold on; box on; grid on;
         for sc = 1:tNs
             if f == 1
                 y = squeeze(tMet{f}(sc, ca, :));
@@ -81,8 +85,9 @@ for f = 1:3
                  'LineWidth', 1.5, 'DisplayName', en_leg{sc});
         end
         if f < 3, set(gca, 'YScale', 'log'); end
-        xlabel('SNR [dB]'); ylabel(tYl{f});
-        title(sprintf('%s (K = %d), all with CAPE', en_caseName{ca}, en_K(ca)));
+        if f == 2, ylim([1e-6 1]); end
+        xlabel(tXl); ylabel(tYl{f});
+        title(sprintf('%s, all with CAPE', en_caseName{ca}));
         legend('Location', tLoc{f});
     end
 end
@@ -110,11 +115,11 @@ for f = 1:2
 end
 
 % ---- T7: does co-array processing help? paired difference, same antennas ----
-figure('Name', 'T7 Effect of co-array processing (paired)', 'Position', [30 30 1150 760]);
+figure('Name', 'T7 Effect of co-array processing (paired)', 'Position', [30 30 tW 760]);
 tYl7 = {'BER change with co-array [%]  (<0 = better)', 'sum-SE change with co-array [%]  (>0 = better)'};
 for row = 1:2
     for ca = 1:tNc
-        subplot(2, 2, (row - 1) * 2 + ca); hold on; box on; grid on;
+        subplot(2, tNc, (row - 1) * tNc + ca); hold on; box on; grid on;
         plot(SNR_dB, zeros(size(SNR_dB)), 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
         ttl = '';
         for pr = 1:2
@@ -132,30 +137,31 @@ for row = 1:2
             set(hEb, 'Color', tCol{a}, 'MarkerFaceColor', tCol{a}, 'LineWidth', 1.4, 'DisplayName', tPairNm{pr});
             ttl = [ttl sprintf('  %s %d%%', tPairNm{pr}, round(100 * mean(Dd(:) == 0)))]; %#ok<AGROW>
         end
-        xlabel('SNR [dB]'); ylabel(tYl7{row});
-        title({sprintf('%s (K = %d)', en_caseName{ca}, en_K(ca)), ['identical:' ttl]});
+        xlabel(tXl); ylabel(tYl7{row});
+        title({en_caseName{ca}, ['identical:' ttl]});
         legend('Location', 'best');
     end
 end
 
 % ---- T8: localisation error vs SNR ----
-figure('Name', 'T8 Localisation error vs SNR', 'Position', [30 30 1150 470]);
+figure('Name', 'T8 Localisation error vs SNR', 'Position', [30 30 tW 470]);
 for ca = 1:tNc
-    subplot(1, 2, ca); hold on; box on; grid on;
+    subplot(1, tNc, ca); hold on; box on; grid on;
     for sc = 1:tNs
         plot(SNR_dB, squeeze(mLC(sc, ca, :)), [tLs{sc} tMk{sc}], 'Color', tCol{sc}, ...
              'MarkerFaceColor', tMfc{sc}, 'LineWidth', 1.5, 'DisplayName', en_leg{sc});
     end
-    set(gca, 'YScale', 'log'); xlabel('SNR [dB]'); ylabel('median position error [m]');
-    title(sprintf('%s (K = %d)', en_caseName{ca}, en_K(ca))); legend('Location', 'northeast');
+    set(gca, 'YScale', 'log'); xlabel(tXl); ylabel('median position error [m]');
+    title(en_caseName{ca}); legend('Location', 'northeast');
 end
 
 % ---- T9: array hardware metrics ----
 tAp = zeros(4, 1);  tUd = zeros(4, 1);  tW1 = zeros(4, 1);  tCl = zeros(4, 1);
 for a = 1:4
-    pa = EN_geo{tArrSch(a), 1}.pos(:);
-    Dm = round((pa - pa.') / (lambda / 2));
-    lg = unique(Dm(:));  bk = [0; find(diff(lg) ~= 1); numel(lg)];
+    Ga = EN_geo{tArrSch(a), 1};  pa = Ga.pos(:);
+    uu = lambda / 2;  if isfield(Ga, 'unit'), uu = Ga.unit; end
+    Dm = round((pa - pa.') / (lambda / 2));            % physical distance in half-wavelengths
+    lg = unique(round((pa - pa.') / uu));  bk = [0; find(diff(lg) ~= 1); numel(lg)];
     tAp(a) = max(pa) - min(pa);  tUd(a) = max(diff(bk));  tW1(a) = sum(Dm(:) == 1);
     U = zeros(numel(pa));  nz = (Dm ~= 0) & (abs(Dm) <= 100);
     U(nz) = 1 ./ abs(Dm(nz));  U(Dm == 0) = 1;
@@ -170,14 +176,29 @@ for m = 1:4
     for a = 1:4
         bar(a, tVal{m}(a), 0.6, 'FaceColor', tArrCol{a});
     end
-    set(gca, 'XTick', 1:4, 'XTickLabel', tArrNm);  xlim([0.4 4.6]);
+    set(gca, 'XTick', 1:4, 'XTickLabel', {'ULA \lambda/2', 'ULA wide', 'Nested', 'Coprime'});  xlim([0.4 4.6]);
     ylabel(tYl9{m});  title(tTt9{m});
+end
+
+% ---- T10: the four detectors for each physical array (first case) ----
+tDn = {'Linear MMSE', 'Hard SIC', 'List SIC', 'Cross-AP List'};
+tDs = {':', '-.', '--', '-'};
+figure('Name', 'T10 BER of the four detectors', 'Position', [30 30 1100 760]);
+for a = 1:4
+    sc = tArrSch(a);
+    subplot(2, 2, a); hold on; box on; grid on;
+    for d = 1:4
+        plot(SNR_dB, max(squeeze(mBE(d, sc, 1, :)), 1e-6), [tDs{d} tMk{sc}], 'Color', tArrCol{a}, ...
+             'MarkerFaceColor', tArrCol{a}, 'LineWidth', 1.3, 'DisplayName', tDn{d});
+    end
+    set(gca, 'YScale', 'log'); ylim([1e-6 1]); xlabel(tXl); ylabel('BER');
+    title(sprintf('%s, %s', tArrNm{a}, en_caseName{1})); legend('Location', 'southwest');
 end
 
 % ---- console summary at 10 dB ----
 for ca = 1:tNc
-    fprintf('\n=== [CODE T] %s, K = %d, at %d dB (mean +- std. error over %d setups) ===\n', ...
-            en_caseName{ca}, en_K(ca), SNR_dB(tSi), tSet);
+    fprintf('\n=== [CODE T] %s, at %d dB (mean +- std. error over %d setups) ===\n', ...
+            en_caseName{ca}, SNR_dB(tSi), tSet);
     fprintf('%-28s %10s %22s %18s %10s\n', 'scheme', 'NMSE', 'BER (Cross-AP List)', 'sum SE', 'loc [m]');
     for sc = 1:tNs
         be = reshape(EN_be(tDet, sc, ca, tSi, :), [], 1);
@@ -190,5 +211,9 @@ for ca = 1:tNc
         Dd = EN_be(tDet, b, ca, :, :) - EN_be(tDet, a, ca, :, :);
         fprintf('  %s: co-array vs physical processing identical in %d%% of (SNR, setup) points\n', ...
                 tPairNm{pr}, round(100 * mean(Dd(:) == 0)));
+    end
+    fprintf('  Cross-AP List BER vs SNR (all schemes):\n');
+    for sc = 1:tNs
+        fprintf('    %-28s', en_names{sc});  fprintf(' %9.2e', squeeze(mBE(tDet, sc, ca, :)));  fprintf('\n');
     end
 end

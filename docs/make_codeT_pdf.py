@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
-"""Build array_comparison_explained.pdf: answers to the professor's questions and Code T description."""
+"""Build array_comparison_explained.pdf: answers to the professor's questions and Code T (crowded case)."""
+import json
+import pathlib
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_JUSTIFY, TA_CENTER
 from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image,
-                                ListFlowable, ListItem, HRFlowable, KeepTogether, PageBreak)
+                                ListFlowable, ListItem, HRFlowable, KeepTogether)
 
 OUT = '/home/user/csc/array_comparison_explained.pdf'
 FIG = '/home/user/csc/docs/'
+VERIF = pathlib.Path(FIG + 'codeT_verification.json')   # filled from the Octave check run
 
 ss = getSampleStyleSheet()
 NAVY = colors.HexColor('#12305c')
-H1 = ParagraphStyle('H1', parent=ss['Heading1'], fontSize=14, spaceBefore=14, spaceAfter=6, textColor=NAVY, keepWithNext=1)
+H1 = ParagraphStyle('H1', parent=ss['Heading1'], fontSize=14, spaceBefore=14, spaceAfter=6, textColor=NAVY,
+                    keepWithNext=1)
 H2 = ParagraphStyle('H2', parent=ss['Heading2'], fontSize=11.5, spaceBefore=10, spaceAfter=4,
                     textColor=colors.HexColor('#22548c'), keepWithNext=1)
 BODY = ParagraphStyle('BODY', parent=ss['Normal'], fontSize=10, leading=14.2, alignment=TA_JUSTIFY, spaceAfter=6)
@@ -38,7 +42,7 @@ def P(t, s=BODY):
 
 def bullets(items, s=BODY):
     return ListFlowable([ListItem(Paragraph(x, s), leftIndent=12) for x in items],
-                        bulletType='bullet', start='\u2022', bulletFontName='Helvetica', leftIndent=14)
+                        bulletType='bullet', start='•', bulletFontName='Helvetica', leftIndent=14)
 
 
 def numbered(items, s=BODY):
@@ -70,289 +74,331 @@ def fig(path, w_cm, caption):
 s = []
 # ------------------------------------------------------------------ title
 s += [Spacer(1, 0.6 * cm),
-      P('Array Comparison for the Cell-Free Near-Field Uplink', TITLE),
+      P('Array Comparison for the Crowded Cell-Free Uplink', TITLE),
       Spacer(1, 4),
       P("Answers to the professor's questions, and what the new comparison code (Code T) does", SUB),
       Spacer(1, 10), HRFlowable(width='100%', thickness=1, color=NAVY), Spacer(1, 10)]
 
-s += [P('<b>Purpose of this note.</b> The professor raised three points after looking at the Code R / Code S '
+s += [P('<b>Purpose of this note.</b> The professor raised these points after looking at the Code R / Code S '
         'results: (1) the array we called a "uniform sparse array" should be called a uniform linear array; '
         '(2) the wide-spacing idea gives only a small benefit, so we should compare it properly against the '
-        'normal ULA (spacing &lambda;/2) and against well-known sparse arrays (nested, coprime or EMISC); '
-        '(3) the nested array and the "difference co-array" give almost the same results, and since they '
-        'have the same physical antennas, why are they treated as two different things? This note answers '
-        'each point in simple words, checked against our own code and the literature, and explains the new '
-        'code <b>Code_T_ArrayComparison.m</b> that runs the comparison the professor asked for.')]
+        'normal ULA (spacing &lambda;/2) and against nested and coprime arrays; (3) the nested array and the '
+        '"difference co-array" give almost the same results although they have the same antennas, so why are '
+        'they treated as two things? (4) a cell-free system is a <b>loaded</b> system: few antennas per AP and '
+        'many users, so we should study only the crowded case (8 antennas per AP, 16 users); and (5) BER curves '
+        'must be proper waterfall curves, reaching about 10<super>-4</super> to 10<super>-5</super> around '
+        '20 dB. This note answers each point in simple words, checked against our own code and the literature, '
+        'and explains the new code <b>Code_T_ArrayComparison.m</b>.')]
 
 s += [P('Short answers', H1)]
 s += [table([
     ['Question', 'Short answer'],
-    ['Is a ULA with large equal spacing a "uniform linear array" or a "uniform sparse array"?',
-     '<b>It is a uniform linear array (ULA).</b> "Uniform linear" describes the geometry: antennas on a '
-     'line with equal spacing. The spacing value does not change the family. Large spacing only adds '
-     'grating lobes. Say "a ULA with spacing d = 4&lambda;" or "a wide-spaced ULA". The professor is right.'],
+    ['ULA with large equal spacing: "uniform linear array" or "uniform sparse array"?',
+     '<b>Uniform linear array (ULA).</b> "Uniform linear" describes the geometry: antennas on a line with '
+     'equal spacing. The spacing value does not change the family; large spacing only adds grating lobes. Say '
+     '"a ULA with spacing d = 4&lambda;" or "a wide-spaced ULA".'],
     ['Why did the wide-spacing idea give only a small benefit?',
-     'The large aperture improves resolution, but the spacing creates <b>grating lobes</b>: at d = 4&lambda; '
-     'the beampattern has 7 peaks as strong as the main beam. CAPE removes this ambiguity only partly. '
-     'Detection tolerates a wrong lobe (small BER / sum-rate gain), localization does not.'],
-    ['Nested array vs "difference co-array": what is different?',
-     '<b>Nothing in hardware.</b> In our code both use the same 32 antennas at the same positions. The '
-     'difference co-array is not an array you build; it is a <i>virtual</i> array computed from the '
-     'physical array. The only difference is the <b>processing</b>.'],
+     'The large aperture improves resolution, but the spacing creates <b>grating lobes</b> (at d = 4&lambda;, 7 '
+     'peaks as strong as the main beam). CAPE removes this ambiguity only partly.'],
+    ['Nested vs "difference co-array": what is different?',
+     '<b>Nothing in hardware.</b> Same antennas at the same positions. The difference co-array is a '
+     '<i>virtual</i> array computed from the physical one; only the <b>processing</b> differs.'],
     ['Why are their results almost the same?',
-     'In our code the co-array only proposes a few <b>extra candidate positions</b>; the same CAPE '
-     'likelihood on the physical antennas still picks the answer. Also, the estimation is done one user at a '
-     'time, the co-array model assumes plane waves (our links are near field), the covariance comes from '
-     'very few pilot samples, and the co-array MUSIC was limited to a 3.95 m virtual aperture, smaller than '
-     'the 13.55 m physical one.'],
-    ['What does the new code do?',
-     'Six schemes at equal hardware (32 antennas, all with CAPE): ULA &lambda;/2, ULA 4&lambda;, nested, '
-     'nested + co-array, coprime, coprime + co-array. All schemes see the same random channels and noise '
-     '(paired comparison), so any nested vs nested + co-array gap is caused only by the co-array processing.'],
+     'The co-array only proposes a few <b>extra candidate positions</b>; the same CAPE likelihood on the '
+     'physical antennas still picks the answer. More reasons in Section 3.'],
+    ['Crowded system with 8 antennas: does the near field disappear?',
+     'Only for the dense ULA. A sparse array has a larger aperture, so a larger Rayleigh distance. With 8 '
+     'antennas, nested/coprime on the &lambda;/2 grid reach only 11-18 m, so we <b>stretch</b> them to the same '
+     '~2.8 m aperture as the 4&lambda; ULA: then all three sparse arrays reach 160-180 m.'],
+    ['Why were the BER curves not waterfall curves?',
+     'Our "SNR" axis was really the user <b>transmit power in dBm</b>, and users had very different link '
+     'qualities (22 dB spread). Code T fixes both with power control: the proposed detector now waterfalls. '
+     'The simpler detectors still floor because each AP has 8 antennas for 16 users.'],
 ], [5.0 * cm, 11.6 * cm])]
 
 # ------------------------------------------------------------------ 1. naming
 s += [P('1. Naming: uniform linear array, not "uniform sparse array"', H1)]
 s += [P('An array is named after its <b>geometry</b>, meaning where the antennas are. A <b>uniform linear '
-        'array (ULA)</b> is N antennas on a straight line with the same spacing d between neighbours. This '
-        'definition does not put any limit on d. Textbooks (e.g. Van Trees, <i>Optimum Array Processing</i>) '
-        'explain that d &le; &lambda;/2 avoids grating lobes, and that a ULA with d &gt; &lambda;/2 is still a '
-        'ULA. It is simply under-sampled in space, so it has grating lobes.')]
+        'array (ULA)</b> is N antennas on a straight line with the same spacing d between neighbours. The '
+        'definition does not limit d. Textbooks (e.g. Van Trees, <i>Optimum Array Processing</i> [10]) explain '
+        'that d &le; &lambda;/2 avoids grating lobes, and that a ULA with d &gt; &lambda;/2 is still a ULA. It '
+        'is simply under-sampled in space, so it has grating lobes.')]
 s += [P('The literature uses the ULA name in exactly this way:')]
 s += [bullets([
     'Vaidyanathan and Pal build the <b>coprime array</b> from two <b>uniform linear arrays</b> whose spacings are '
-    'M&middot;d and N&middot;d, i.e. much larger than &lambda;/2. They are still called ULAs. Later papers describe a '
-    'coprime array as "two ULAs that are undersampled by coprime factors" [2], [3].',
-    'In near-field communications, Zhou <i>et al.</i> [6] study a uniform array with spacing larger than &lambda;/2 '
-    'and call it a <b>linear sparse array (LSA)</b>. Their definition is a ULA with enlarged spacing. They show '
-    'that it improves near-field beam focusing but creates grating lobes with power comparable to the main lobe.',
-    'Modular / widely-spaced array papers (Kosasih, Demir and Bj&ouml;rnson [7]; Li <i>et al.</i> [8]) describe '
-    'arrays built from widely spaced <b>ULAs</b>, and report the same trade-off: larger aperture, better '
-    'resolution, but grating lobes that reduce the SINR of other users.',
+    'M&middot;d and N&middot;d, much larger than &lambda;/2. Later papers describe a coprime array as "two ULAs '
+    'that are undersampled by coprime factors" [2], [3].',
+    'In near-field communications, Zhou <i>et al.</i> [6] study a uniform array with spacing larger than '
+    '&lambda;/2 and call it a <b>linear sparse array (LSA)</b>, defined as a ULA with enlarged spacing. It '
+    'improves near-field beam focusing but creates grating lobes as strong as the main lobe.',
+    'Modular / widely spaced array papers [7], [8] describe arrays built from widely spaced <b>ULAs</b> and report '
+    'the same trade-off: larger aperture and better resolution, but grating lobes that reduce the SINR of other '
+    'users.',
 ])]
-s += [P('In the sparse-array signal-processing literature, the word "sparse array" normally means a '
-        '<b>non-uniform</b> array (nested, coprime, MISC, EMISC, ...) whose element positions are chosen so that '
-        'the difference co-array is large and has no holes. A widely spaced ULA is "sparse" only in the loose '
-        'sense of "few antennas over a long aperture". Its difference co-array has a hole after every lag, so '
-        'it does not belong to that family.')]
+s += [P('In the sparse-array literature, "sparse array" normally means a <b>non-uniform</b> array (nested, '
+        'coprime, MISC, EMISC, ...) whose positions are chosen so that the difference co-array is large and has '
+        'no holes. A widely spaced ULA is "sparse" only in the loose sense of "few antennas over a long aperture".')]
 s += [P('<b>Recommended wording for the paper:</b> "a uniform linear array (ULA) with inter-antenna spacing '
-        'd = 4&lambda;", or "a wide-spaced ULA". If the word sparse is needed, use "sparse ULA" only as a '
-        'description, and never present it as a new array type.', KEY)]
+        'd = 4&lambda;", or "a wide-spaced ULA". Use "sparse ULA" only as a description, never as a new array '
+        'type.', KEY)]
 
 # ------------------------------------------------------------------ 2. why small gain
 s += [P('2. Why the wide-spaced ULA gave only a small benefit', H1)]
-s += [P('At the same 32 antennas, widening the spacing from &lambda;/2 to 4&lambda; multiplies the aperture by '
-        'eight (1.55 m to 12.40 m). That is the attraction: a larger aperture gives finer angle resolution and a '
-        'much larger Rayleigh distance (48 m to 3.1 km). This puts every user of the 300 m area inside the near '
-        'field, where range can also be resolved. The cost is the <b>grating lobes</b>. With d = 4&lambda;, the '
-        'array cannot tell apart directions whose sin&theta; differ by a multiple of &lambda;/d = 1/4. Figure 1 '
-        'shows the far-field beampattern: the 4&lambda; ULA has <b>7 peaks at full gain</b> (peak sidelobe level '
-        '0 dB), while the &lambda;/2 ULA has one main beam with -13 dB sidelobes.')]
+s += [P('Widening the spacing from &lambda;/2 to 4&lambda; at the same number of antennas multiplies the aperture '
+        'by eight. A larger aperture gives finer angle resolution and a much larger Rayleigh distance, so more '
+        'users are in the near field, where range can also be resolved. The cost is the <b>grating lobes</b>: '
+        'with d = 4&lambda; the array cannot tell apart directions whose sin&theta; differ by a multiple of '
+        '&lambda;/d = 1/4. Figure 1 shows the far-field beampattern of the four 8-antenna arrays used in Code T: '
+        'the 4&lambda; ULA has <b>7 peaks at full gain</b>.')]
 s += [fig(FIG + 'codeT_fig_beams.png', 15.5,
-          'Figure 1. Far-field beampattern of the four 32-antenna arrays. The 4&lambda; ULA has six grating lobes '
-          'as strong as the main beam. Nested and coprime have one main beam and high but lower sidelobes (about '
-          '-5 dB).')]
-s += [P('What this meant in our earlier results (Code R, spacing 4.5&lambda;, 6 random setups):')]
+          'Figure 1. Far-field beampattern of the four 8-antenna arrays of Code T. 4&lambda; ULA: 7 full-gain '
+          'peaks. Nested and coprime, stretched to the same aperture: 3 full-gain peaks each. Dense ULA: one main '
+          'beam, -13 dB sidelobes, but a 0.35 m aperture.')]
+s += [P('What this meant in our earlier results (Code R, 32 antennas, spacing 4.5&lambda;, 6 random setups):')]
 s += [bullets([
-    '<b>Data detection improved a little in the user-rich case.</b> At K = 40 and 10 dB the wide ULA + CAPE gave '
-    'BER 0.100 vs 0.142 for nested + CAPE, and sum SE 145 vs 118 bit/s/Hz. In the antenna-rich case (K = 8) the '
-    'two were tied within the noise. With only 6 setups the error bars were wide (about &plusmn;20 bit/s/Hz on '
-    'the sum SE), so even the user-rich gain was not firmly established.',
-    '<b>Localization failed in some setups.</b> A grating lobe points to a wrong position, and CAPE did not always '
-    'remove it (median errors of 1.5 m, 4 m, 10 m and 40 m in some setups, against centimetres for nested).',
-    '<b>Why detection survives but localization does not:</b> a grating-lobe ghost gives a steering vector that '
-    'still matches the received signal well, so the channel estimate is usable for detection even when the '
-    'position is wrong. Detection is tolerant to the ambiguity; localization is not.',
-    'Code S, which chose the spacing from the full design procedure, showed the same picture: a small gain in '
-    'BER and sum rate, nothing decisive.',
+    '<b>Detection improved a little with many users.</b> At K = 40 and 10 dB: BER 0.100 vs 0.142 for nested, sum '
+    'SE 145 vs 118 bit/s/Hz. With K = 8 the two were tied within the noise; with 6 setups the error bars were '
+    'wide (about &plusmn;20 bit/s/Hz on the sum SE).',
+    '<b>Localization failed in some setups</b> (median errors of 1.5 m to 40 m against centimetres for nested): a '
+    'grating lobe points to a wrong position and CAPE did not always remove it.',
+    '<b>Why detection survives but localization does not:</b> a grating-lobe ghost still gives a steering vector '
+    'that matches the received signal well, so the channel estimate is usable for detection even when the '
+    'position is wrong.',
 ])]
-s += [P('<b>One real advantage our simulation cannot show.</b> The 4&lambda; ULA has no closely spaced antennas '
-        '(w(1) = 0) and the lowest coupling leakage of the four arrays (Table 1). That matters in hardware. But '
-        'our channel model has <b>no mutual-coupling model</b>: the channel is an ideal spherical-wave or '
-        'correlated-Rayleigh channel. So the low-coupling benefit can be stated as a hardware property, but it '
-        'will never appear in our BER curves.', NOTE)]
+s += [P('<b>One real advantage our simulation cannot show.</b> Wide spacing removes closely spaced antennas, so '
+        'mutual coupling is low (Table 2). But our channel model has <b>no mutual-coupling model</b>, so this '
+        'benefit can be stated as a hardware property only; it will never appear in our BER curves.', NOTE)]
 
 # ------------------------------------------------------------------ 3. nested vs co-array
 s += [P('3. Nested array vs "difference co-array"', H1)]
 s += [P('3.1 What each one is', H2)]
-s += [P('The <b>physical array</b> is the set of antennas you actually build. The <b>difference co-array</b> is the '
-        'set of all differences x<sub>m</sub> - x<sub>n</sub> between antenna positions. It appears because the '
-        'covariance entry between antennas m and n of a far-field source depends only on that difference: '
-        'R<sub>mn</sub> ~ exp(j2&pi;(x<sub>m</sub>-x<sub>n</sub>)sin&theta;/&lambda;). If we rearrange the '
-        'covariance entries by their lag, we obtain samples of a longer <b>virtual</b> array. Methods like '
-        'co-array MUSIC (with spatial smoothing) then work on that virtual array.')]
+s += [P('The <b>physical array</b> is the set of antennas you build. The <b>difference co-array</b> is the set of '
+        'all differences x<sub>m</sub> - x<sub>n</sub> between antenna positions. It appears because, for a '
+        'far-field source, the covariance entry between antennas m and n depends only on that difference: '
+        'R<sub>mn</sub> ~ exp(j2&pi;(x<sub>m</sub>-x<sub>n</sub>)sin&theta;/&lambda;). Rearranging the covariance '
+        'entries by lag gives samples of a longer <b>virtual</b> array, on which methods such as co-array MUSIC '
+        'work.')]
 s += [bullets([
-    '<b>Every array has a difference co-array</b>, even the plain ULA (its lags are -31 ... 31, i.e. 63 values, so it '
-    'gains nothing).',
-    'Nested and coprime arrays are <b>designed</b> so that their co-array is long and has no holes: 543 hole-free '
-    'lags for our nested array and 287 for the coprime array, from only 32 antennas (Figure 2, Table 1).',
-    'So "nested array" names a <b>physical geometry</b>, and "difference co-array processing" names a '
-    '<b>signal-processing method</b> applied to that geometry. They are not two arrays.',
+    '<b>Every array has a difference co-array</b>, even a plain ULA (8 antennas give lags -7 ... 7, i.e. 15 '
+    'values, so nothing is gained).',
+    'Nested and coprime arrays are <b>designed</b> so that the co-array is long and hole-free: with 8 antennas, '
+    '39 hole-free lags for nested and 23 for coprime (Figure 2, Table 2).',
+    'So "nested array" names a <b>physical geometry</b> and "difference co-array processing" names a '
+    '<b>signal-processing method</b> applied to it. They are not two arrays.',
 ])]
 s += [fig(FIG + 'codeT_fig_layouts.png', 15.5,
-          'Figure 2. The four 32-antenna arrays (dots) and their hole-free difference co-arrays (ticks). The '
-          '4&lambda; ULA has no hole-free co-array: all its lags are multiples of 8 half-wavelengths.')]
+          'Figure 2. The four 8-antenna arrays of Code T (dots) and their hole-free difference co-arrays (ticks), '
+          'on each array\'s own grid. The 4&lambda; ULA co-array is only a 15-lag ULA with 4&lambda; spacing.')]
 s += [P('3.2 What our code actually does', H2)]
-s += [P('In Code R, scheme 3 ("Nested + CAPE") and scheme 4 ("Difference co-array + CAPE") have the same geometry '
-        "('nested'), the same 32 antennas and the same CAPE estimator. The <b>only</b> difference is the flag "
-        '<font face="Courier">en_idea</font>. With it switched on, inside <font face="Courier">csi_acquire_cape</font> '
-        'each AP forms the sample covariance of its pilot samples, builds the virtual array, runs MUSIC, and '
-        'turns the MUSIC angles (plus a range search) into <b>extra candidate positions</b>. These are added to '
-        "the list. The final position is chosen by the <b>same</b> CAPE fused likelihood computed on the "
-        '<b>physical</b> antennas (Figure 3).')]
+s += [P('In our code, "Nested + CAPE" and "Nested + co-array + CAPE" have the same geometry, the same antennas and '
+        'the same CAPE estimator. The <b>only</b> difference is the flag <font face="Courier">en_idea</font>. When '
+        'it is on, each AP forms the sample covariance of its pilot samples, builds the virtual array, runs MUSIC, '
+        'and turns the MUSIC angles (plus a range search) into <b>extra candidate positions</b>. The final '
+        'position is still chosen by the <b>same</b> CAPE fused likelihood on the <b>physical</b> antennas '
+        '(Figure 3).')]
 s += [fig(FIG + 'codeT_fig_processing.png', 15.5,
           'Figure 3. Same antennas, two processing chains. The co-array branch can only add candidates; the '
           'decision is always made by the same CAPE likelihood.')]
-s += [P('3.3 Why the two curves are almost identical', H2)]
+s += [P('3.3 Why the two curves were almost identical', H2)]
 s += [numbered([
-    '<b>The co-array can only add candidates.</b> If the candidates found by CAPE on the physical array already '
-    'contain the correct position (and with 4 fused APs they almost always do), the extra candidates never win '
-    'and the result is exactly the same.',
-    '<b>Our problem is one user at a time.</b> With orthogonal pilots, each user\'s pilot is separated before '
-    'estimation, so each AP estimates one channel at a time. The famous advantage of the co-array, resolving '
-    '<i>more sources than antennas</i> (O(N<super>2</super>) degrees of freedom), matters when many sources must '
-    'be separated at once from one covariance, as in DOA estimation [1], [4], [5]. It is not the bottleneck here.',
-    '<b>The co-array model assumes plane waves.</b> The lag structure R<sub>mn</sub> = f(x<sub>m</sub>-x<sub>n</sub>) '
-    'holds only for far-field sources. For our sparse arrays the Rayleigh distance is 3.1-3.7 km, so every link '
-    'in the 300 m area is near field. The curved wavefront breaks the lag structure, so the co-array angles are '
-    'only approximate. Our own code header already notes this.',
-    '<b>Very few samples for the covariance.</b> The covariance is estimated from &tau; = K pilot samples (8 or '
-    '40). Co-array MUSIC needs many snapshots to work well [5].',
-    '<b>The virtual aperture was capped.</b> In Code R/S the smoothed virtual subarray was limited to 80 elements '
-    '(<font face="Courier">ca_Nsub_max = 80</font>), a 3.95 m virtual aperture, which is <i>smaller</i> than the '
-    '13.55 m physical aperture of the nested array. So the co-array angles were coarser than what the physical '
-    'array already sees. Even without the cap, spatial smoothing keeps about half of the 543 lags, i.e. 272 '
-    'elements = 13.55 m, which is the same as the physical aperture. <b>The co-array adds degrees of freedom, not '
-    'resolution beyond the physical aperture.</b>',
-    '<b>The earlier comparison was not paired.</b> Code R gave every scheme a different random seed (the seed '
-    'included the scheme number), even though a code comment says otherwise. So nested and co-array saw '
-    'different channels and noise. Their small differences (about 0.5%) were smaller than the Monte Carlo error '
-    '(about &plusmn;3%), i.e. pure noise.',
+    '<b>The co-array can only add candidates.</b> If CAPE\'s own candidates already contain the right position, '
+    'the extra candidates never win and the result is exactly the same.',
+    '<b>We estimate one user at a time.</b> With orthogonal pilots each AP estimates one channel at a time. The '
+    'famous co-array advantage, resolving <i>more sources than antennas</i>, matters when many sources must be '
+    'separated at once from one covariance, as in DOA estimation [1], [4], [5]. Note that the crowded case '
+    '(K = 16 &gt; N = 8) is exactly that regime, so if the co-array helps anywhere, it is here.',
+    '<b>The co-array model assumes plane waves</b>, but near-field links have curved wavefronts, so the co-array '
+    'angles are only approximate.',
+    '<b>Very few samples for the covariance:</b> &tau; = K pilot samples.',
+    '<b>Code R capped the virtual aperture</b> at 80 elements (3.95 m), smaller than the physical aperture. Even '
+    'without the cap, spatial smoothing keeps about half of the co-array, i.e. about the physical aperture: '
+    'the co-array adds degrees of freedom, not resolution beyond the physical aperture.',
+    '<b>Code R comparisons were not paired:</b> every scheme had a different random seed, so the small '
+    'differences between nested and co-array were Monte Carlo noise.',
 ])]
-s += [P('3.4 How the literature uses it, and how to present it', H2)]
-s += [P('The professor\'s remark matches the literature. Papers choose a sparse physical array (nested, coprime, '
-        'MISC, ...) and then apply co-array processing to it. A typical comparison is either (a) different '
-        'arrays processed with the same method, or (b) different methods on the same array. Nobody lists '
-        '"nested" and "difference co-array" as two competing arrays, because the second one is not an array.')]
-s += [P('<b>For our paper:</b> keep the arrays and the processing separate. Write "nested array (direct '
-        'processing)" and "nested array with difference co-array processing". If the co-array processing gives no '
-        'measurable gain (see Section 5), it is honest and stronger to say so in one sentence and explain the '
-        'reasons above, rather than show two overlapping curves with different names.', KEY)]
+s += [P('<b>For the paper:</b> keep arrays and processing separate: "nested array (direct processing)" and "nested '
+        'array with difference co-array processing". If the co-array gives no measurable gain, say so in one '
+        'sentence with the reasons above. The professor\'s remark matches the literature: papers pick a sparse '
+        'array and then apply co-array processing to it; nobody lists "nested" and "difference co-array" as two '
+        'competing arrays.', KEY)]
 
-# ------------------------------------------------------------------ 4. Code T
-s += [P('4. The new comparison code: Code_T_ArrayComparison.m', H1)]
-s += [P('Code T is built from Code R (through Code S, which ran correctly on your machine). The scenario, the CAPE '
-        'estimator, the four detectors, the SNR grid (0 to 30 dB), L = 8 APs, the two cases (K = 8 and K = 40 with '
-        '32 antennas per AP) and the user-count sweep are unchanged. Only the array set and the comparison '
-        'method change.')]
-s += [P('4.1 The six schemes (32 physical antennas per AP, all with CAPE)', H2)]
+# ------------------------------------------------------------------ 4. crowded system
+s += [P('4. The crowded cell-free system (8 antennas per AP, 16 users)', H1)]
+s += [P('The professor\'s point is that cell-free networks are <b>loaded</b>: many cheap APs with few antennas each, '
+        'serving many users. Code T therefore keeps only the crowded case: L = 8 APs, N = 8 antennas per AP, '
+        'K = 16 users (64 antennas in total for 16 users, and 16 users against 8 antennas at every AP).')]
+s += [P('4.1 Does the near field disappear with 8 antennas?', H2)]
+s += [P('The Rayleigh distance is 2D<super>2</super>/&lambda;, where D is the aperture. The near field matters only '
+        'for users closer than this. In our layout every AP-user distance is at least about 22 m (20 m horizontal '
+        'plus the 10 m AP height). With 8 antennas:')]
+s += [table([
+    ['Array (8 antennas)', 'Grid', 'Aperture', 'Rayleigh distance', 'Near-field links (measured)'],
+    ['ULA &lambda;/2', '&lambda;/2', '0.35 m', '2.5 m', '0 %'],
+    ['Coprime (2,5), classic', '&lambda;/2', '0.75 m', '11 m', '0 %'],
+    ['Nested 4+4, classic', '&lambda;/2', '0.95 m', '18 m', '0-2 %'],
+    ['ULA 4&lambda;', '4&lambda;', '2.80 m', '157 m', '76-80 %'],
+    ['Nested 4+4, <b>stretched</b>', '1.5&lambda;', '2.85 m', '162 m', 'like the 4&lambda; ULA'],
+    ['Coprime (2,5), <b>stretched</b>', '2&lambda;', '3.00 m', '180 m', 'like the 4&lambda; ULA'],
+], [4.3 * cm, 1.5 * cm, 2.0 * cm, 3.0 * cm, 5.8 * cm])]
+s += [Spacer(1, 6)]
+s += [P('So your point is correct: a sparse array increases the Rayleigh distance. But the classic nested and '
+        'coprime arrays on the &lambda;/2 grid are too short with only 8 antennas (11-18 m); their links are all '
+        'far field, and CAPE (which only acts on near-field links) would do nothing for them. Code T therefore '
+        '<b>stretches</b> the nested and coprime arrays to the same ~2.8 m aperture as the 4&lambda; ULA. Then '
+        'all three sparse arrays have Rayleigh distances of 160-180 m, and the comparison is fair: <b>same '
+        'number of antennas and same aperture</b>; only the layout differs.')]
+s += [P('<b>The price of stretching.</b> If all antennas lie on a grid with spacing u &gt; &lambda;/2, the '
+        'beampattern repeats with period &lambda;/u, so every stretched array has some grating lobes. But the '
+        'number differs: 7 full-gain peaks for the 4&lambda; ULA, only 3 for stretched nested (1.5&lambda; grid) '
+        'and stretched coprime (2&lambda; grid), see Figure 1. At equal aperture, the non-uniform layouts are '
+        'clearly <b>less ambiguous</b> than the wide ULA. This is a real, explainable advantage of nested and '
+        'coprime, and resolving the remaining ambiguity across APs is exactly what CAPE is for.', KEY)]
+
+s += [P('4.2 The SNR axis: what our old plots really showed', H2)]
+s += [P('In all earlier codes the path gain &beta; is already divided by the noise power (in mW), and the code '
+        'sets the transmit power p equal to the "SNR" value. So the old x-axis "SNR [dB]" was really the '
+        '<b>user transmit power in dBm</b>. In our diagnostic drop, the strongest-AP gain per user was -7.6 dB '
+        'for the median user, -19 dB for the weakest 10 % and +2.6 dB for the best 10 %: a 22 dB spread. The '
+        'average BER is dominated by the weak users, so the BER falls slowly instead of a waterfall.')]
+s += [P('<b>What Code T does: uplink power control.</b> Every user scales its transmit power so that its '
+        'received SNR per antenna, at its own strongest AP, equals the value on the x-axis. In the code this is '
+        'one line, <font face="Courier">bet = bet ./ max(bet, [], 1)</font>, which is exactly equivalent. The '
+        'x-axis is then "received SNR per antenna at the user\'s strongest AP". This is a common, honest '
+        'definition in cell-free papers, and it must be stated in the paper. Weak users then transmit more '
+        'power and also interfere more at other APs; that is included in the simulation.')]
+
+s += [P('4.3 Why the old detectors had a BER floor', H2)]
+s += [P('We ran a diagnostic of the crowded case in GNU Octave before changing anything (2 random drops, '
+        '16-QAM, the old 3-dB clusters, classic &lambda;/2-grid nested/coprime). BER of the estimated-CSI '
+        'detectors:')]
+s += [table([
+    ['Old transmit-power axis', '10 dBm', '20 dBm', '30 dBm', '40 dBm'],
+    ['Linear MMSE, <b>perfect CSI</b> (all arrays)', '0.26-0.29', '0.23-0.24', '0.23-0.25', '0.21-0.23'],
+    ['List SIC, <b>perfect CSI</b> (all arrays)', '0.20-0.24', '0.12-0.16', '0.10-0.15', '0.06-0.18'],
+    ['Cross-AP List, ULA &lambda;/2', '2.0e-1', '1.1e-1', '2.3e-2', '1.6e-2'],
+    ['Cross-AP List, ULA 4&lambda;', '1.8e-1', '3.5e-2', '1.4e-3', '7.8e-4'],
+    ['Cross-AP List, nested (classic)', '2.0e-1', '7.3e-2', '4.3e-3', '6.3e-4'],
+], [6.4 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm])]
+s += [Spacer(1, 6)]
+s += [bullets([
+    '<b>Linear, Hard-SIC and List-SIC stay at BER 0.1-0.25 even with perfect CSI and 40 dBm.</b> That is an '
+    'interference floor, not a noise or estimation problem. Cause: these detectors first combine locally at '
+    'each AP (only 8 antennas against 16 users) and the user clusters kept only APs within <b>3 dB</b> of the '
+    'strongest AP, so each user was served by only 1.2-1.4 APs.',
+    'Only our <b>Cross-AP List</b> detector kept falling, because it fuses all APs in its hardest stages. But '
+    'it fell slowly, because of the 22 dB user spread on the transmit-power axis.',
+    'With power control alone (still 16-QAM, still 3-dB clusters) the Cross-AP List curves became waterfalls '
+    '(e.g. 4&lambda; ULA: 4.5e-2 at 10 dB, 7.8e-4 at 20 dB, no errors at 25 dB), while the other three '
+    'detectors still floored at 0.13-0.24. This confirmed the two separate causes.',
+])]
+s += [P('4.4 What Code T changes for the crowded case (your choices)', H2)]
+s += [numbered([
+    '<b>Crowded case only:</b> N = 8, K = 16; the user sweep covers K = 8, 12, 16, 20, 24 (all K &ge; N).',
+    '<b>Power control / SNR axis</b> as in Section 4.2; SNR from 0 to 28 dB in 4 dB steps.',
+    '<b>16-QAM is kept.</b> QPSK was tested too, but with power control it reaches zero errors by 4-8 dB, so no '
+    'waterfall is visible in the 0-20 dB range (Section 5.3).',
+    '<b>Larger user clusters:</b> APs within 10 dB of the strongest AP (<font face="Courier">clu_div = 10</font>, '
+    'was 2 = 3 dB), to lower the interference floor of the baseline detectors.',
+    '<b>Equal-aperture sparse arrays:</b> nested and coprime stretched to ~2.8 m (Section 4.1).',
+    '<b>Correct pilot overhead:</b> the sum rate now uses &tau;<sub>p</sub> = K pilots '
+    '(prelog 1 - K/&tau;<sub>c</sub>). The old code always used 8 pilots, which overstated the sum rate by about '
+    '4 % for K = 16 (about 20 % for K = 40 in Code R).',
+    '<b>Enough bits for 10<super>-5</super>:</b> 10 drops x 4 realisations x 800 symbols x 16 users x 4 bits = '
+    '2.0 x 10<super>6</super> bits per point. Fewer bits cannot show BER 10<super>-5</super> reliably.',
+])]
+
+# ------------------------------------------------------------------ 5. Code T
+s += [P('5. The new code: Code_T_ArrayComparison.m', H1)]
+s += [P('Code T is built from Code R (through Code S, which ran correctly on your machine). CAPE, the four '
+        'detectors, the scenario generator and L = 8 APs are unchanged.')]
+s += [P('<b>Table 1.</b> The six schemes (8 physical antennas per AP, all with CAPE).', BODY)]
 s += [table([
     ['#', 'Scheme', 'Physical array', 'Processing'],
-    ['1', 'ULA (&lambda;/2)', 'dense ULA, d = &lambda;/2, aperture 1.55 m', 'direct (physical array)'],
-    ['2', 'ULA (4&lambda;)', 'wide-spaced ULA, d = 4&lambda;, aperture 12.40 m', 'direct'],
-    ['3', 'Nested', 'two-level nested (16 + 16), aperture 13.55 m', 'direct'],
-    ['4', 'Nested + co-array', '<b>same antennas as #3</b>', 'direct + difference co-array MUSIC candidates'],
-    ['5', 'Coprime', 'extended coprime, M = 8, N = 17, aperture 12.75 m', 'direct'],
-    ['6', 'Coprime + co-array', '<b>same antennas as #5</b>', 'direct + difference co-array MUSIC candidates'],
-], [0.8 * cm, 3.4 * cm, 6.6 * cm, 5.8 * cm])]
+    ['1', 'ULA (&lambda;/2)', 'dense ULA, aperture 0.35 m', 'direct'],
+    ['2', 'ULA (4&lambda;)', 'wide-spaced ULA, aperture 2.80 m', 'direct'],
+    ['3', 'Nested (stretched)', 'nested 4+4 on a 1.5&lambda; grid, aperture 2.85 m', 'direct'],
+    ['4', 'Nested (stretched) + co-array', '<b>same antennas as #3</b>', 'direct + co-array MUSIC candidates'],
+    ['5', 'Coprime (stretched)', 'coprime (2,5) on a 2&lambda; grid, aperture 3.00 m', 'direct'],
+    ['6', 'Coprime (stretched) + co-array', '<b>same antennas as #5</b>', 'direct + co-array MUSIC candidates'],
+], [0.8 * cm, 4.2 * cm, 6.4 * cm, 5.2 * cm])]
 s += [Spacer(1, 6)]
-s += [P('The three sparse arrays have almost the same aperture (12.4 to 13.6 m), so differences between them come '
-        'from the <b>layout</b> (grating lobes vs co-array structure), not from size. Co-array processing is not '
-        'applied to the 4&lambda; ULA because it has no hole-free co-array.')]
-s += [P('<b>Table 1.</b> Geometry metrics (computed from the exact positions used in the code).', BODY)]
+s += [P('<b>Table 2.</b> Geometry metrics of the four 8-antenna arrays (exact positions used in the code).', BODY)]
 s += [table([
-    ['Array', 'Aperture', 'Rayleigh dist.', 'Hole-free co-array', 'w(1)', 'Coupling leakage', 'Peak sidelobe'],
-    ['ULA &lambda;/2', '1.55 m', '48 m', '63', '31', '0.865', '-13.2 dB'],
-    ['ULA 4&lambda;', '12.40 m', '3075 m', '1 (holes)', '0', '0.209', '0 dB (grating lobes)'],
-    ['Nested', '13.55 m', '3672 m', '543', '16', '0.772', '-5.0 dB'],
-    ['Coprime (8,17)', '12.75 m', '3251 m', '287', '2', '0.432', '-5.3 dB'],
-], [2.6 * cm, 1.9 * cm, 2.2 * cm, 2.6 * cm, 1.2 * cm, 2.6 * cm, 3.5 * cm])]
-s += [P('w(1) = number of antenna pairs only &lambda;/2 apart (these couple most strongly). Coupling leakage uses the '
-        'standard banded model (1/k for pairs k half-wavelengths apart).', SMALL), Spacer(1, 8)]
-
-s += [P('4.2 What changed compared with Code R, and why', H2)]
+    ['Array', 'Aperture', 'Rayleigh', 'Hole-free co-array', 'w(1)', 'Coupling leakage', 'Full-gain peaks'],
+    ['ULA &lambda;/2', '0.35 m', '2.5 m', '15', '7', '0.839', '1 (sidelobes -13 dB)'],
+    ['ULA 4&lambda;', '2.80 m', '157 m', '15 (4&lambda; grid)', '0', '0.189', '7'],
+    ['Nested, 1.5&lambda; grid', '2.85 m', '162 m', '39', '0', '0.358', '3'],
+    ['Coprime, 2&lambda; grid', '3.00 m', '180 m', '23', '0', '0.243', '3'],
+], [3.1 * cm, 1.8 * cm, 1.8 * cm, 2.9 * cm, 1.1 * cm, 2.6 * cm, 3.3 * cm])]
+s += [P('w(1) = number of antenna pairs only &lambda;/2 apart (they couple most strongly). Coupling leakage uses '
+        'the standard banded model. Co-array lengths are in units of each array\'s own grid.', SMALL),
+      Spacer(1, 8)]
+s += [P('5.1 Other changes compared with Code R', H2)]
 s += [numbered([
-    '<b>Array set</b> as requested: ULA &lambda;/2, ULA 4&lambda;, nested, coprime, plus co-array processing on '
-    'nested and coprime. The spacing of the wide ULA is one parameter at the top: '
-    '<font face="Courier">ulaw_d_lambda = 4</font>.',
-    '<b>Paired comparison.</b> All six schemes now use the same random seed in a given setup and SNR, so they '
-    'see the same user drop, the same pilot noise and the same data symbols. For nested vs nested + co-array '
-    '(and coprime vs coprime + co-array) the channels are identical too, so any difference is caused only by '
-    'the co-array processing. The co-array covariance noise is drawn from its own side stream, so it does not '
-    'shift the random numbers used later.',
-    '<b>No cap on the co-array.</b> <font face="Courier">ca_Nsub_max = 1000</font>, so co-array MUSIC uses its full '
-    'smoothed virtual aperture. This gives the co-array its best chance, so a "no gain" result cannot be blamed '
-    'on the cap.',
-    '<b>More random setups:</b> <font face="Courier">nSetE = 10</font> (Code R had 6). Use 6 for a quick look; '
-    'use at least 10 for the paper.',
-    '<b>User-count sweep</b> now includes all six schemes and reuses the prebuilt geometries (same result, '
-    'faster).',
-    '<b>Results are saved before plotting</b> to <font face="Courier">codeT_arraycomp_results.mat</font>, including '
-    'the array geometries. <font face="Courier">plot_codeT_figures.m</font> redraws all figures from the workspace or '
-    'from that file, so the figure problems we had with Code S cannot happen again.',
+    '<b>Paired comparison.</b> All schemes use the same random seed in a given drop and SNR, so they see the same '
+    'users, pilot noise and data symbols; nested vs nested + co-array also see identical channels. The '
+    'co-array covariance noise comes from its own random stream, so it does not shift the other random numbers. '
+    'Any difference between #3 and #4 (or #5 and #6) is caused only by the co-array processing.',
+    '<b>Co-array on the array\'s own grid and with no cap</b> (<font face="Courier">ca_Nsub_max = 1000</font>), so '
+    'the co-array gets its best chance. On a stretched grid the virtual array spacing is also larger than '
+    '&lambda;/2, so co-array MUSIC returns aliased angles; these are only candidates and CAPE decides.',
+    '<b>Results are saved before plotting</b> (<font face="Courier">codeT_arraycomp_results.mat</font>, including '
+    'the geometries). <font face="Courier">plot_codeT_figures.m</font> redraws all figures without rerunning.',
 ])]
-
-s += [P('4.3 The figures and what each one answers', H2)]
+s += [P('5.2 Figures', H2)]
 s += [table([
     ['Fig.', 'Content', 'Question it answers'],
-    ['T1', 'Physical antennas and hole-free co-array of each array', 'What is physically different between the arrays?'],
-    ['T2', 'Far-field beampattern', 'Where are the grating lobes (4&lambda; ULA) and sidelobes?'],
-    ['T3', 'Channel NMSE vs SNR, both cases', 'Which array gives the best channel estimate?'],
-    ['T4', 'BER vs SNR, both cases', 'Which array gives the best detection?'],
-    ['T5', 'Sum SE vs SNR, both cases', 'Which array gives the best rate?'],
-    ['T6', 'BER and sum SE vs number of users K at 10 dB', 'Does the ranking change when users outnumber antennas?'],
-    ['T7', 'Paired change caused by co-array processing (with error bars and % identical)',
-     "<b>The professor's question:</b> does co-array processing change anything?"],
+    ['T1', 'Antenna positions and hole-free co-array of each array', 'What is physically different?'],
+    ['T2', 'Far-field beampattern', 'How many grating lobes does each array have?'],
+    ['T3', 'Channel NMSE vs SNR', 'Which array gives the best channel estimate?'],
+    ['T4', 'BER vs SNR (Cross-AP List)', 'Which array gives the best detection? (waterfall)'],
+    ['T5', 'Sum SE vs SNR', 'Which array gives the best rate?'],
+    ['T6', 'BER and sum SE vs number of users K at 10 dB', 'How does each array cope with more load?'],
+    ['T7', 'Paired change caused by co-array processing', "The professor's co-array question"],
     ['T8', 'Median localization error vs SNR', 'Do grating lobes break localization?'],
-    ['T9', 'Aperture, hole-free co-array, w(1), coupling leakage', 'Hardware cost and coupling of each array'],
-], [1.1 * cm, 7.4 * cm, 8.1 * cm])]
+    ['T9', 'Aperture, co-array, w(1), coupling leakage', 'Hardware cost and coupling'],
+    ['T10', 'BER of all four detectors for each array', 'Do the baseline detectors still have a floor?'],
+], [1.1 * cm, 7.2 * cm, 8.3 * cm])]
 s += [Spacer(1, 6)]
-s += [P('The console also prints a table at 10 dB with the mean and the standard error over the setups for every '
-        'scheme, plus the percentage of (SNR, setup) points where the co-array version gave <b>exactly</b> the same '
-        'BER as the direct version.')]
-s += [P('<b>How it was checked before giving it to you.</b> Both files parse without errors. A reduced version (1 '
-        'setup, 3 SNR points, few symbols) ran the full computation from start to end in GNU Octave (both cases, '
-        'all six schemes, the user sweep) and saved the results file; all nine figures and the console table were '
-        'then drawn from it with <font face="Courier">plot_codeT_figures.m</font>, which uses the same figure code. '
-        'The run also confirmed that the pairing is exact: with the co-array switched on, the results were '
-        'bit-identical to the plain array wherever the extra candidates did not win. Octave is not MATLAB, and '
-        'such a tiny run proves only that the code works, not what the results will be. The real numbers must '
-        'come from your MATLAB run.', NOTE)]
 
-# ------------------------------------------------------------------ 5. how to judge
-s += [P('5. How to read the results and decide', H1)]
+v = json.loads(VERIF.read_text()) if VERIF.exists() else None
+if v:
+    s += [P('5.3 Verification run (before giving you the code)', H2)]
+    s += [P(v['intro'])]
+    s += [table(v['table'], v['widths'])]
+    s += [Spacer(1, 4)]
+    s += [P(v['comment'], NOTE)]
+
+# ------------------------------------------------------------------ 6. how to judge
+s += [P('6. How to read the results and decide', H1)]
 s += [numbered([
     '<b>Use the error bars.</b> If two schemes differ by less than about two standard errors (printed in the '
-    'console), treat them as equal. Do not claim a gain from a difference inside the noise.',
-    '<b>Co-array question (Figure T7).</b> If the curves stay at 0 % and the title says the co-array version was '
-    'identical in most points, co-array processing does not change any decision in our system. Then say so in '
-    'one sentence and keep only the physical arrays in the main figures. If it gives a clear gain somewhere '
-    '(most likely K = 40 at low SNR), that is a real, explainable result and can be reported.',
-    '<b>ULA 4&lambda; vs nested vs coprime (Figures T3-T6).</b> These have nearly the same aperture, so this is a '
-    'clean test of layout. If the 4&lambda; ULA is equal or better in BER/sum SE but clearly worse in localization '
-    '(T8), the honest summary is: "wide spacing helps detection, grating lobes hurt localization".',
-    '<b>ULA &lambda;/2 vs the sparse arrays.</b> The dense ULA has an 8-times smaller aperture and a 48 m Rayleigh '
-    'distance, so many of its links are far field. A large difference here is mainly an <b>aperture</b> effect, '
-    'which is expected and is not a new finding by itself.',
-    '<b>Coupling.</b> Since coupling is not simulated, Table 1 / Figure T9 can support a hardware argument (for '
-    'example, coprime and 4&lambda; ULA have far fewer close pairs than nested), but not a BER claim.',
+    'console), treat them as equal.',
+    '<b>Co-array (T7).</b> If the curves stay at 0 % and the title says the results were identical in most '
+    'points, the co-array changes no decision in our system: say so in one sentence. A clear gain anywhere '
+    '(most likely at low SNR, where it is the K &gt; N regime) is a real result and can be reported.',
+    '<b>ULA 4&lambda; vs stretched nested vs stretched coprime (T3-T6).</b> Same antennas, same aperture: this is '
+    'a clean test of <b>layout</b>. The expectation from Figure 1 is that nested and coprime (3 peaks) beat the '
+    'ULA (7 peaks) in localization (T8), and possibly in BER.',
+    '<b>ULA &lambda;/2 vs the sparse arrays.</b> The dense ULA has an 8-times smaller aperture and only far-field '
+    'links, so CAPE cannot help it. A large gap here is mainly an aperture effect.',
+    '<b>Detectors (T10).</b> In the verification run, Linear MMSE and List SIC still floor at about 0.1 with '
+    '16-QAM. That is an honest message: in a loaded cell-free system local-first detectors are interference-limited, and '
+    'the Cross-AP List detector is what makes the waterfall possible.',
 ])]
-s += [P('<b>Expectation, to be confirmed by the run (not a result):</b> based on the mechanism above, we expect '
-        'Figure T7 to stay close to zero, the three sparse arrays to be close in BER and sum SE (with the 4&lambda; '
-        'ULA possibly a little ahead at K = 40), and the 4&lambda; ULA to be the worst in localization.', NOTE)]
 
-# ------------------------------------------------------------------ 6. limitations
-s += [P('6. Limitations to keep in mind', H1)]
+# ------------------------------------------------------------------ 7. limitations
+s += [P('7. Limitations to keep in mind', H1)]
 s += [bullets([
-    '<b>EMISC is not included.</b> The professor allowed "coprime or EMISC". We used the coprime array because its '
-    'construction is standard and unambiguous. EMISC (or MISC [9]) can be added later as one more case in '
+    '<b>EMISC is not included</b> (the professor allowed "coprime or EMISC"); it can be added as one more case in '
     '<font face="Courier">geom_targetN</font>.',
     '<b>No mutual coupling</b> in the channel model (Section 2).',
-    '<b>Co-array processing uses a plane-wave virtual array</b>, as in the standard literature. Near-field-aware '
-    'co-array methods exist, but they would be a new method, not part of this comparison.',
-    '<b>Run time.</b> Six schemes with 10 setups and a six-scheme user sweep take roughly 1.6 to 2 times as long as '
-    'Code R (Code R used 6 setups and a three-scheme sweep). Set <font face="Courier">nSetE = 6</font> for a quick '
-    'first look.',
+    '<b>Power control is channel inversion at the strongest AP.</b> It is simple and standard, but weak users '
+    'transmit much more power. State it in the paper; other power-control rules would shift the curves.',
+    '<b>Co-array processing uses a plane-wave virtual array</b>, as in the standard literature.',
+    '<b>Run time.</b> About 2 x 10<super>6</super> bits per point are needed for BER 10<super>-5</super>, and 16-QAM list detection is slow. In MATLAB with parpool this is '
+    'several times Code R\'s run time. For a first look set <font face="Courier">nSymE = 200</font> and '
+    '<font face="Courier">nSetE = 4</font> (then BER below about 10<super>-4</super> is not reliable).',
 ])]
 
 # ------------------------------------------------------------------ refs
@@ -361,25 +407,21 @@ refs = [
     '[1] P. Pal and P. P. Vaidyanathan, "Nested arrays: A novel approach to array processing with enhanced degrees '
     'of freedom," <i>IEEE Trans. Signal Process.</i>, vol. 58, no. 8, 2010.',
     '[2] P. P. Vaidyanathan and P. Pal, "Sparse sensing with co-prime samplers and arrays," <i>IEEE Trans. Signal '
-    'Process.</i>, vol. 59, no. 2, 2011. (Coprime array built from two ULAs.)',
+    'Process.</i>, vol. 59, no. 2, 2011.',
     '[3] P. Pal and P. P. Vaidyanathan, "Coprime sampling and the MUSIC algorithm," <i>Proc. IEEE DSP/SPE '
-    'Workshop</i>, 2011. (Extended coprime array, 2M + N - 1 sensors.)',
+    'Workshop</i>, 2011.',
     '[4] C.-L. Liu and P. P. Vaidyanathan, "Remarks on the spatial smoothing step in coarray MUSIC," <i>IEEE Signal '
-    'Process. Lett.</i>, 2015; and C.-L. Liu, PhD thesis, Caltech, 2018: '
-    'thesis.library.caltech.edu/10970/1/Liu_Chun-Lin_2018.pdf',
+    'Process. Lett.</i>, 2015; C.-L. Liu, PhD thesis, Caltech, 2018.',
     '[5] M. Wang and A. Nehorai, "Coarrays, MUSIC, and the Cram&eacute;r-Rao bound," <i>IEEE Trans. Signal Process.</i>, '
-    '2017. arXiv:1605.03620 (co-array MUSIC saturates when sources exceed sensors; behaviour with snapshots).',
+    '2017, arXiv:1605.03620.',
     '[6] C. Zhou, C. You, H. Zhang, L. Chen, S. Shi, "Sparse array enabled near-field communications: Beam pattern '
-    'analysis and hybrid beamforming design," arXiv:2401.05690, 2024 (linear sparse array = ULA with spacing '
-    '&gt; &lambda;/2; grating lobes; extended coprime array).',
+    'analysis and hybrid beamforming design," arXiv:2401.05690, 2024.',
     '[7] A. Kosasih, &Ouml;. T. Demir, E. Bj&ouml;rnson, "Near-field beamfocusing, localization, and channel estimation '
     'with modular linear arrays," arXiv:2505.07991, 2025.',
-    '[8] Li <i>et al.</i>, modular XL-MIMO near-field analysis, arXiv:2308.11289, 2023 (larger aperture improves '
-    'resolution, grating lobes degrade user SINR).',
+    '[8] Li <i>et al.</i>, modular XL-MIMO near-field analysis, arXiv:2308.11289, 2023.',
     '[9] Z. Zheng, W.-Q. Wang, Y. Kong, Y. D. Zhang, "MISC array: A new sparse array design achieving increased '
     'degrees of freedom and reduced mutual coupling effect," <i>IEEE Trans. Signal Process.</i>, 2019.',
-    '[10] H. L. Van Trees, <i>Optimum Array Processing</i>, Wiley, 2002 (ULA definition, grating lobes for '
-    'd &gt; &lambda;/2).',
+    '[10] H. L. Van Trees, <i>Optimum Array Processing</i>, Wiley, 2002.',
     '[11] Wang <i>et al.</i>, "Exploring the advantages of sparse arrays in near-field XL-MIMO systems: Beam analysis '
     'and EDoF function," arXiv:2501.09234, 2025.',
 ]
@@ -390,7 +432,7 @@ def footer(canvas, doc):
     canvas.saveState()
     canvas.setFont('Helvetica', 8)
     canvas.setFillColor(colors.HexColor('#777777'))
-    canvas.drawString(2 * cm, 1.2 * cm, 'Array comparison note - Code T')
+    canvas.drawString(2 * cm, 1.2 * cm, 'Array comparison note - Code T (crowded case)')
     canvas.drawRightString(19 * cm, 1.2 * cm, 'page %d' % doc.page)
     canvas.restoreState()
 
@@ -399,4 +441,4 @@ doc = SimpleDocTemplate(OUT, pagesize=A4, leftMargin=2.1 * cm, rightMargin=2.1 *
                         topMargin=1.8 * cm, bottomMargin=2 * cm,
                         title='Array comparison: answers and Code T', author='')
 doc.build(s, onFirstPage=footer, onLaterPages=footer)
-print('wrote', OUT)
+print('wrote', OUT, '(verification section included)' if v else '(no verification section yet)')

@@ -1,0 +1,78 @@
+{
+ "intro": "Before giving you the code, the full Code T pipeline was run in GNU Octave for the crowded case with the final settings (power control, 10-dB clusters, stretched arrays), with <b>2 random drops</b> and 200 symbols (25,600 bits per point, so values below about 4x10<super>-4</super> rest on fewer than 10 errors and are noisy). Cross-AP List BER:",
+ "table": [
+  [
+   "Scheme (16-QAM)",
+   "0 dB",
+   "8 dB",
+   "16 dB",
+   "20 dB",
+   "24 dB"
+  ],
+  [
+   "ULA &lambda;/2",
+   "2.3e-1",
+   "1.5e-1",
+   "4.6e-2",
+   "4.2e-2",
+   "1.3e-2"
+  ],
+  [
+   "ULA 4&lambda;",
+   "1.9e-1",
+   "8.3e-2",
+   "9.0e-3",
+   "3.5e-3",
+   "6.3e-4"
+  ],
+  [
+   "Nested (stretched)",
+   "2.0e-1",
+   "7.9e-2",
+   "1.0e-2",
+   "4.7e-4",
+   "8.6e-4"
+  ],
+  [
+   "Nested (stretched) + co-array",
+   "2.0e-1",
+   "8.2e-2",
+   "1.0e-2",
+   "6.3e-4",
+   "6.6e-4"
+  ],
+  [
+   "Coprime (stretched)",
+   "2.0e-1",
+   "7.6e-2",
+   "1.1e-2",
+   "1.5e-3",
+   "0 (&lt;4e-5)"
+  ],
+  [
+   "Coprime (stretched) + co-array",
+   "1.9e-1",
+   "7.6e-2",
+   "1.1e-2",
+   "1.7e-3",
+   "0 (&lt;4e-5)"
+  ],
+  [
+   "Nested: Linear MMSE / List SIC",
+   "2.3e-1 / 2.1e-1",
+   "1.9e-1 / 1.2e-1",
+   "1.6e-1 / 9.7e-2",
+   "1.6e-1 / 9.6e-2",
+   "1.6e-1 / 1.0e-1"
+  ]
+ ],
+ "widths": [
+  141.75,
+  65.205,
+  65.205,
+  65.205,
+  65.205,
+  68.04
+ ],
+ "comment": "<b>What this shows (2 drops only, not final results):</b> (1) the proposed Cross-AP List detector now gives a real waterfall over 0-24 dB; the sparse arrays are at about 5x10<super>-4</super> to 1.5x10<super>-3</super> at 20 dB, so 10<super>-4</super> is reached between 20 and 28 dB (the SNR grid now goes to 28 dB). (2) The dense &lambda;/2 ULA falls much more slowly (no near-field links, tiny aperture). (3) Co-array processing changes nothing measurable: the results were identical in 43-50 % of the (SNR, drop) points and the rest differ only by noise. (4) Linear MMSE and List SIC still floor at about 0.1-0.16 with 16-QAM: the larger clusters lowered the floor but did not remove it. <b>QPSK was also tested</b> (1 drop): all detectors then reach zero errors by 4-8 dB, so the 0-20 dB region is empty and no waterfall is visible. That is why Code T uses 16-QAM. If the professor needs 10<super>-4</super> exactly at 20 dB, it should come from the system (for example more antennas per AP or fewer users), not from redefining the SNR axis."
+}
