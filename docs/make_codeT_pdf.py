@@ -396,9 +396,10 @@ s += [bullets([
     '<b>Power control is channel inversion at the strongest AP.</b> It is simple and standard, but weak users '
     'transmit much more power. State it in the paper; other power-control rules would shift the curves.',
     '<b>Co-array processing uses a plane-wave virtual array</b>, as in the standard literature.',
-    '<b>Run time.</b> About 2 x 10<super>6</super> bits per point are needed for BER 10<super>-5</super>, and 16-QAM list detection is slow. In MATLAB with parpool this is '
-    'several times Code R\'s run time. For a first look set <font face="Courier">nSymE = 200</font> and '
-    '<font face="Courier">nSetE = 4</font> (then BER below about 10<super>-4</super> is not reliable).',
+    '<b>Run time.</b> The first version of Code T was far too slow (days). It now uses a vectorised detector '
+    '(the same decisions, checked bit by bit against the old one), no unused perfect-CSI pass, a faster CAPE '
+    'refinement and one parallel task per drop, scheme and SNR. One full-size task takes about 10 s in Octave '
+    '(about 60 times faster); the script prints its own time estimate after the first task.',
 ])]
 
 # ------------------------------------------------------------------ refs

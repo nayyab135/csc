@@ -290,6 +290,8 @@ for bad in ['uspa_eta', 'usd_', 'eta_max', 'Pf_eta', 'ambiguity_budget', 'optimi
     if bad in src:
         sys.exit(f'leftover reference: {bad}')
 
+import speed_patch
+src = speed_patch.patch(src)
 (REPO / 'Code_T_ArrayComparison.m').write_text(src)
 plot = (r"""%% PLOT_CODET_FIGURES  Redraw Code T figures T1-T10 without rerunning the simulation.
 %  Uses the variables already in the workspace after Code_T_ArrayComparison.m.

@@ -19,6 +19,9 @@ clear; close all; clc;
 %  (paired comparison), so a 3-vs-4 or 5-vs-6 difference is caused only by
 %  the co-array processing. The co-array MUSIC subarray is NOT capped here,
 %  so the co-array gets its full smoothed virtual aperture.
+%  SPEED: vectorised detector (same decisions as the symbol-by-symbol one),
+%  no unused perfect-CSI pass, one parallel task per (drop, scheme, SNR).
+%  The script prints an estimated run time after the first task.
 %  Figures T1..T10. Results are saved to codeT_arraycomp_results.mat BEFORE
 %  plotting; plot_codeT_figures.m redraws the figures without rerunning.
 %% ====================================================================
@@ -670,62 +673,59 @@ for caE = 1:nCaseE
     end
 end
 r_max_en = min(0.9 * 2 * ((N_ref - 1) * d_ant)^2 / lambda, squareLen / 2);
-parfor ns = 1:nSetE
-    s_nmse = zeros(nSchE, nCaseE, nSNR);
-    s_be   = zeros(4, nSchE, nCaseE, nSNR);
-    s_sum  = zeros(4, nSchE, nCaseE, nSNR);
-    s_loc  = nan(nSchE, nCaseE, nSNR);
-    s_time = zeros(nSchE, nCaseE);
-    s_fh   = zeros(nSchE, nCaseE);
-    s_nf   = zeros(nSchE, nCaseE);
-    s_seD  = nan(4, max(en_K), nSchE, nCaseE);
+% ---- [CODE T] speed: the random drops are drawn once (reproducible) and the
+%      work is split into one parallel task per (drop, case, scheme, SNR), so
+%      every worker stays busy. Each task uses the same seed as before. ----
+CF = struct('lambda', lambda, 'eps_NF', eps_NF, 'asd_phi', ASD_varphi, 'asd_th', ASD_theta, ...
+            'clu_div', clu_div, 'sL', squareLen, 'hD', hDiff, 'nAP', cape_nAP, 'nCand', cape_nCand, ...
+            'J', cape_J, 'step0', cape_step0, 'nIter', cape_nIter, 'consist', cape_consist, ...
+            'nAng', ca_nAngGrid, 'nRng', ca_nRangeGrid, 'nPeak', ca_nPeak, 'nSubMax', ca_Nsub_max, ...
+            'nReal', nRealE, 'nSym', nSymE, 'M', M_lst, 'dth', d_th, 'maxBr', maxBr, ...
+            'mod', modOrder, 'tau_c', tau_c);
+rng(20261119);
+DRP = cell(nSetE, nCaseE);
+for ns = 1:nSetE
     for caE = 1:nCaseE
-        Kc  = en_K(caE);
-        APp = (rand(L, 1) + 1j * rand(L, 1)) * squareLen;
-        UEp = drop_scenario(APp, Kc, L, min(n_collinear_pairs, floor(Kc / 2)), ...
-                            r_min_NF, r_max_en, 'hotspot', hs_r, squareLen);
-        UEm = mod(real(UEp), squareLen) + 1j * mod(imag(UEp), squareLen);
-        APw = wrap_images(APp, squareLen, wrap_fix);
-        [d3, sE, phL, thL, bet] = link_geometry(APw, UEp, hDiff, fc_GHz, hBS, hUT, c0, noisePow_dBm);
-        bet = bet ./ max(bet, [], 1);   % [CODE T] uplink power control: received SNR at each
-                                         % user's strongest AP = the SNR axis value
-        EPc = struct('nReal', nRealE, 'nSym', nSymE, 'M', M_lst, 'dth', d_th, ...
-                     'maxBr', maxBr, 'mod', modOrder, 'prelog', 1 - Kc / tau_c, 'eps_NF', eps_NF);   % pilots: tau_p = Kc
-        for scE = 1:nSchE
-            Gc = EN_geo{scE, caE};
-            ST = array_stats(Gc, d3, sE, phL, thL, bet, lambda, eps_NF, ASD_varphi, ASD_theta, clu_div);
-            s_nf(scE, caE) = mean(ST.NF(:));
-            FG = cape_cfg(true, APp, APw, squareLen, hDiff, cape_nAP, cape_nCand, ...
-                          cape_J, cape_step0, cape_nIter, cape_consist);
-            FG.useCA   = (en_idea(scE) > 0);
-            FG.co_idea = en_idea(scE);
-            FG.CA      = EN_CA{scE, caE};
-            FG.CAs     = EN_CAs{scE, caE};
-            FG.nAng    = ca_nAngGrid;
-            FG.nRng    = ca_nRangeGrid;
-            FG.nPk     = max(ca_nPeak, ceil(Kc / 2));   % enough angle peaks when users are many
-            FG.nSubMax = ca_Nsub_max;
-            for si = 1:nSNR
-                seed = 9e6 + 1e4 * ns + 1000 * caE + si;   % [CODE T] same seed for every scheme (paired)
-                O = eval_scheme(ST, bet, en_cape(scE), EN_PD{scE, caE}, FG, SNR_lin(si), EPc, false, UEm, seed);
-                s_nmse(scE, caE, si) = O.nmse;
-                s_be(:, scE, caE, si) = O.be;
-                s_sum(:, scE, caE, si) = O.sum;
-                if ~isempty(O.loc), s_loc(scE, caE, si) = median(O.loc); end
-                s_time(scE, caE) = s_time(scE, caE) + O.time;
-                s_fh(scE, caE)   = s_fh(scE, caE) + O.nfus;
-                if si == snr_ref_idx
-                    s_seD(:, 1:size(O.se, 2), scE, caE) = O.se;
-                end
-            end
-        end
+        DRP{ns, caE} = make_drop(en_K(caE), L, n_collinear_pairs, r_min_NF, r_max_en, hs_r, squareLen, ...
+                                 wrap_fix, hDiff, fc_GHz, hBS, hUT, c0, noisePow_dBm);
     end
-    EN_nmse(:, :, :, ns) = s_nmse;  EN_be(:, :, :, :, ns) = s_be;
-    EN_sum(:, :, :, :, ns) = s_sum;    EN_loc(:, :, :, ns) = s_loc;
-    EN_time(:, :, ns) = s_time / nSNR;  EN_fh(:, :, ns) = s_fh / nSNR;
-    EN_nf(:, :, ns) = s_nf;  EN_seD(:, :, :, :, ns) = s_seD;
-    fprintf('  equal-N study setup %d/%d done\n', ns, nSetE);
 end
+sz    = [nSNR, nSchE, nCaseE, nSetE];
+nTask = prod(sz);
+T_nmse = zeros(1, nTask);  T_be = zeros(4, nTask);  T_sum = zeros(4, nTask);  T_loc = nan(1, nTask);
+T_time = zeros(1, nTask);  T_fh = zeros(1, nTask);  T_nf  = zeros(1, nTask);
+T_seD  = nan(4, max(en_K), nTask);
+nW = n_workers();
+[~, scP] = max(en_idea);                         % heaviest scheme (co-array) for the time estimate
+tP = tic;
+run_task(DRP{1, 1}, EN_geo{scP, 1}, EN_PD{scP, 1}, EN_CA{scP, 1}, EN_CAs{scP, 1}, en_idea(scP), ...
+         en_cape(scP), en_K(1), SNR_lin(snr_ref_idx), 1, CF);
+tP = toc(tP);
+fprintf('  one task takes about %.0f s -> main study at most about %.0f min with %d worker(s)\n', ...
+        tP, tP * nTask / nW / 60, nW);
+tMain = tic;
+parfor tk = 1:nTask
+    [si, scE, caE, ns] = ind2sub(sz, tk);
+    seed = 9e6 + 1e4 * ns + 1000 * caE + si;     % same seed for every scheme (paired)
+    [O, nfv] = run_task(DRP{ns, caE}, EN_geo{scE, caE}, EN_PD{scE, caE}, EN_CA{scE, caE}, EN_CAs{scE, caE}, ...
+                        en_idea(scE), en_cape(scE), en_K(caE), SNR_lin(si), seed, CF);
+    T_nmse(tk) = O.nmse;  T_be(:, tk) = O.be;  T_sum(:, tk) = O.sum;
+    if ~isempty(O.loc), T_loc(tk) = median(O.loc); end
+    T_time(tk) = O.time;  T_fh(tk) = O.nfus;  T_nf(tk) = nfv;
+    sd = nan(4, max(en_K));
+    if si == snr_ref_idx, sd(:, 1:size(O.se, 2)) = O.se; end
+    T_seD(:, :, tk) = sd;
+end
+fprintf('  main study: %d tasks done in %.1f min\n', nTask, toc(tMain) / 60);
+EN_nmse = permute(reshape(T_nmse, sz), [2 3 1 4]);
+EN_be   = permute(reshape(T_be, [4 sz]), [1 3 4 2 5]);
+EN_sum  = permute(reshape(T_sum, [4 sz]), [1 3 4 2 5]);
+EN_loc  = permute(reshape(T_loc, sz), [2 3 1 4]);
+EN_time = reshape(mean(reshape(T_time, sz), 1), nSchE, nCaseE, nSetE);
+EN_fh   = reshape(mean(reshape(T_fh, sz), 1), nSchE, nCaseE, nSetE);
+EN_nf   = reshape(mean(reshape(T_nf, sz), 1), nSchE, nCaseE, nSetE);
+seAll   = reshape(T_seD, [4, max(en_K), sz]);
+EN_seD  = reshape(seAll(:, :, snr_ref_idx, :, :, :), [4, max(en_K), nSchE, nCaseE, nSetE]);
 end
 
 % ---- [CODE T] user-count sweep at the reference SNR, all six schemes ----
@@ -738,40 +738,26 @@ EN_Kbe  = zeros(nKsch, nKsw, nSetE);    % BER, Cross-AP detector
 EN_Ksum = zeros(nKsch, nKsw, nSetE);    % sum SE, Cross-AP detector
 if eqN_study
 fprintf('\n=== [CODE T] user-count sweep at %d dB: K = %s ===\n', SNR_dB(snr_ref_idx), mat2str(Ksw));
-parfor ns = 1:nSetE
-    kbe = zeros(nKsch, nKsw);  ksum = zeros(nKsch, nKsw);
+DRK = cell(nSetE, nKsw);
+for ns = 1:nSetE
     for ik = 1:nKsw
-        Kc  = Ksw(ik);
-        APp = (rand(L, 1) + 1j * rand(L, 1)) * squareLen;
-        UEp = drop_scenario(APp, Kc, L, min(n_collinear_pairs, floor(Kc / 2)), ...
-                            r_min_NF, r_max_en, 'hotspot', hs_r, squareLen);
-        UEm = mod(real(UEp), squareLen) + 1j * mod(imag(UEp), squareLen);
-        APw = wrap_images(APp, squareLen, wrap_fix);
-        [d3, sE, phL, thL, bet] = link_geometry(APw, UEp, hDiff, fc_GHz, hBS, hUT, c0, noisePow_dBm);
-        bet = bet ./ max(bet, [], 1);   % [CODE T] uplink power control: received SNR at each
-                                         % user's strongest AP = the SNR axis value
-        EPc = struct('nReal', nRealE, 'nSym', nSymE, 'M', M_lst, 'dth', d_th, ...
-                     'maxBr', maxBr, 'mod', modOrder, 'prelog', 1 - Kc / tau_c, 'eps_NF', eps_NF);   % pilots: tau_p = Kc
-        for jj = 1:nKsch
-            scE = Ksw_sch(jj);
-            Gc  = EN_geo{scE, 1};
-            PDc = EN_PD{scE, 1};
-            ST  = array_stats(Gc, d3, sE, phL, thL, bet, lambda, eps_NF, ASD_varphi, ASD_theta, clu_div);
-            FG  = cape_cfg(true, APp, APw, squareLen, hDiff, cape_nAP, cape_nCand, ...
-                           cape_J, cape_step0, cape_nIter, cape_consist);
-            FG.useCA = (en_idea(scE) > 0);  FG.co_idea = en_idea(scE);
-            FG.CA = EN_CA{scE, 1};  FG.CAs = [];
-            FG.nAng = ca_nAngGrid;  FG.nRng = ca_nRangeGrid;
-            FG.nPk = max(ca_nPeak, ceil(Kc / 2));  FG.nSubMax = ca_Nsub_max;
-            seed = 3e7 + 1e4 * ns + 100 * ik;   % same seed for every scheme (paired)
-            O = eval_scheme(ST, bet, en_cape(scE), PDc, FG, SNR_lin(snr_ref_idx), EPc, false, UEm, seed);
-            kbe(jj, ik)  = O.be(4);
-            ksum(jj, ik) = O.sum(4);
-        end
+        DRK{ns, ik} = make_drop(Ksw(ik), L, n_collinear_pairs, r_min_NF, r_max_en, hs_r, squareLen, ...
+                                wrap_fix, hDiff, fc_GHz, hBS, hUT, c0, noisePow_dBm);
     end
-    EN_Kbe(:, :, ns) = kbe;  EN_Ksum(:, :, ns) = ksum;
-    fprintf('  user-count sweep setup %d/%d done\n', ns, nSetE);
 end
+nTk  = nKsch * nKsw * nSetE;
+K_be = zeros(1, nTk);  K_sum = zeros(1, nTk);
+tSw  = tic;
+parfor tk = 1:nTk
+    [jj, ik, ns] = ind2sub([nKsch, nKsw, nSetE], tk);
+    scE = Ksw_sch(jj);
+    O = run_task(DRK{ns, ik}, EN_geo{scE, 1}, EN_PD{scE, 1}, EN_CA{scE, 1}, [], en_idea(scE), ...
+                 en_cape(scE), Ksw(ik), SNR_lin(snr_ref_idx), 3e7 + 1e4 * ns + 100 * ik, CF);
+    K_be(tk) = O.be(4);  K_sum(tk) = O.sum(4);
+end
+EN_Kbe  = reshape(K_be, nKsch, nKsw, nSetE);
+EN_Ksum = reshape(K_sum, nKsch, nKsw, nSetE);
+fprintf('  user-count sweep: %d tasks done in %.1f min\n', nTk, toc(tSw) / 60);
 end
 
 if eqN_study
@@ -1212,18 +1198,16 @@ function [b, mg, s0, q0] = refine_param(r, s0, q0, PD, useKappa)
     ds = PD.ds;
     dq = PD.dq;
     k0 = (1 - s0 ^ 2) * q0;
+    iS = ceil((1:25) / 5);  iQ = mod(0:24, 5) + 1;   % [CODE T] 5 x 5 window, meshgrid order
     for rnd = 1:PD.nref
         sc = mod(s0 + ds * (-2:2) + 1, 2) - 1;
         if useKappa
             kc = max(k0 + dq * (-2:2), 0);
-            [SS, KK] = meshgrid(sc, kc);
-            SS = SS(:).';
-            QQ = min(KK(:).' ./ max(1 - SS .^ 2, 1e-6), PD.q_max);
+            SS = sc(iS);  KK = kc(iQ);
+            QQ = min(KK ./ max(1 - SS .^ 2, 1e-6), PD.q_max);
         else
             qc = min(max(q0 + dq * (-2:2), 0), PD.q_max);
-            [SS, QQ] = meshgrid(sc, qc);
-            SS = SS(:).';
-            QQ = QQ(:).';
+            SS = sc(iS);  QQ = qc(iQ);
         end
         Bc = polar_atoms(PD.pos, SS, QQ, PD.lambda);
         [~, j] = max(abs(Bc' * r));
@@ -1609,9 +1593,12 @@ function [beL, beH, beS, beX, bits, etaList, etaXap] = ber_case(Hhat, Htrue, C, 
 end
 
 function [berU, nmseU, bits_pu, eng_pu, etaXap] = metrics_case(Hhat, Htrue, C, serv, p, N, L, K, nSym, M, dth, maxBr, modOrder)
-    % Per-user BER and per-user hard-decision symbol NMSE for all four
-    % detectors. Detection logic identical to ber_case; only the accounting
-    % is per user. Feeds figures 6, 7 and 8.  [UNCHANGED]
+    % Per-user BER and symbol NMSE of the four detectors (Linear MMSE,
+    % Hard SIC, List SIC, List + Cross-AP). [CODE T] VECTORISED version of the
+    % original symbol-by-symbol detector: same combiners, same random draws
+    % in the same order, same list rules (candidate pooling, stable
+    % de-duplication, pruning to maxBr with the greedy path kept), but all
+    % symbols and all list paths are processed together as matrix columns.
     [Cq, Bmap, kbit] = qam_const(modOrder);
     nC = numel(Cq);
     LN = N * L;
@@ -1622,24 +1609,23 @@ function [berU, nmseU, bits_pu, eng_pu, etaXap] = metrics_case(Hhat, Htrue, C, s
         end
     end
     dth_abs = dth * (dmin / 2);
-    cnt_stg = 0;            % [CODE C] SIC stages seen by the cross-AP variant
-    cnt_shadXap = 0;        % [CODE C] stages where the all-AP fusion is invoked
+    hp = sqrt(p);
+    Csum = sum(C, 4);                                   % N x N x L, summed error covariance
 
+    % ---- combiners, stacked into LN x K weight matrices (one column per user / stage) ----
     Vloc = cell(L, 1);
     for l = 1:L
         idx = (l - 1) * N + 1:l * N;
         Hl = Hhat(idx, :);
-        Ph = p * (Hl * Hl' + sum(C(:, :, l, :), 4)) + eye(N);
+        Ph = p * (Hl * Hl' + Csum(:, :, l)) + eye(N);
         Vloc{l} = p * (Ph \ Hl);
     end
-    aLin = cell(K, 1);
-    servL = cell(K, 1);
+    WL = zeros(LN, K);                                  % linear detector: sh = WL(:,k)' * y
     for k = 1:K
         Sl = find(serv(:, k));
         if isempty(Sl)
             Sl = (1:L)';
         end
-        servL{k} = Sl;
         Lk = numel(Sl);
         Ghat = zeros(Lk, K);
         nvar = zeros(Lk, 1);
@@ -1650,13 +1636,16 @@ function [berU, nmseU, bits_pu, eng_pu, etaXap] = metrics_case(Hhat, Htrue, C, s
             Ghat(jj, :) = v' * Hhat(idx, :);
             nvar(jj) = real(v' * v);
         end
-        aLin{k} = (p * (Ghat * Ghat') + diag(nvar)) \ (sqrt(p) * Ghat(:, k));
+        a = (p * (Ghat * Ghat') + diag(nvar)) \ (sqrt(p) * Ghat(:, k));
+        for jj = 1:Lk
+            idx = (Sl(jj) - 1) * N + 1:Sl(jj) * N;
+            WL(idx, k) = Vloc{Sl(jj)}(:, k) * a(jj);
+        end
     end
 
     [~, ord] = sort(sum(abs(Hhat).^2, 1), 'descend');
-    vS = cell(K, 1);
-    aS = cell(K, 1);
-    sS = cell(K, 1);
+    WS = zeros(LN, K);  HS = zeros(LN, K);              % SIC stage i: cluster combiner / cluster cancellation
+    WA = zeros(LN, K);  HA = zeros(LN, K);              % SIC stage i: all-AP combiner / full cancellation
     for i = 1:K
         k_i = ord(i);
         rem = ord(i:end);
@@ -1664,7 +1653,6 @@ function [berU, nmseU, bits_pu, eng_pu, etaXap] = metrics_case(Hhat, Htrue, C, s
         if isempty(Sl)
             Sl = (1:L)';
         end
-        sS{i} = Sl;
         decoded = ord(1:i - 1);
         Lk = numel(Sl);
         Vk = zeros(N, Lk);
@@ -1674,203 +1662,170 @@ function [berU, nmseU, bits_pu, eng_pu, etaXap] = metrics_case(Hhat, Htrue, C, s
             l = Sl(jj);
             idx = (l - 1) * N + 1:l * N;
             canc_l = decoded(serv(l, decoded));
-            active_l = setdiff((1:K)', canc_l(:));
-            Hl = Hhat(idx, active_l);
-            Cl = sum(C(:, :, l, :), 4);
-            Ph = p * (Hl * Hl' + Cl) + eye(N);
+            act = true(K, 1);  act(canc_l) = false;
+            Hl = Hhat(idx, act);
+            Ph = p * (Hl * Hl' + Csum(:, :, l)) + eye(N);
             v = p * (Ph \ Hhat(idx, k_i));
             Vk(:, jj) = v;
             Ghat(jj, :) = v' * Hhat(idx, rem);
             nvar(jj) = real(v' * v);
         end
-        vS{i} = Vk;
-        aS{i} = (p * (Ghat * Ghat') + diag(nvar)) \ (sqrt(p) * Ghat(:, 1));
-    end
-
-    vA = cell(K, 1);
-    aA = cell(K, 1);
-    for i = 1:K
-        k_i = ord(i);
-        rem = ord(i:end);
+        a = (p * (Ghat * Ghat') + diag(nvar)) \ (sqrt(p) * Ghat(:, 1));
+        for jj = 1:Lk
+            idx = (Sl(jj) - 1) * N + 1:Sl(jj) * N;
+            WS(idx, i) = Vk(:, jj) * a(jj);
+            HS(idx, i) = hp * Hhat(idx, k_i);
+        end
         Va = zeros(N, L);
         Ga = zeros(L, numel(rem));
         na = zeros(L, 1);
         for l = 1:L
             idx = (l - 1) * N + 1:l * N;
             Hl = Hhat(idx, rem);
-            Cl = sum(C(:, :, l, :), 4);
-            Ph = p * (Hl * Hl' + Cl) + eye(N);
+            Ph = p * (Hl * Hl' + Csum(:, :, l)) + eye(N);
             v = p * (Ph \ Hhat(idx, k_i));
             Va(:, l) = v;
             Ga(l, :) = v' * Hhat(idx, rem);
             na(l) = real(v' * v);
         end
-        vA{i} = Va;
-        aA{i} = (p * (Ga * Ga') + diag(na)) \ (sqrt(p) * Ga(:, 1));
+        a = (p * (Ga * Ga') + diag(na)) \ (sqrt(p) * Ga(:, 1));
+        for l = 1:L
+            idx = (l - 1) * N + 1:l * N;
+            WA(idx, i) = Va(:, l) * a(l);
+        end
+        HA(:, i) = hp * Hhat(:, k_i);
     end
+
+    % ---- symbols and noise: same draws, same order as the symbol-by-symbol code ----
+    TI = zeros(K, nSym);
+    NZ = zeros(LN, nSym);
+    for t = 1:nSym
+        TI(:, t) = randi(nC, K, 1);
+        NZ(:, t) = (randn(LN, 1) + 1j * randn(LN, 1)) / sqrt(2);
+    end
+    S = reshape(Cq(TI), K, nSym);
+    Y = hp * (Htrue * S) + NZ;
 
     berU = zeros(4, K);
     nmseU = zeros(4, K);
     bits_pu = nSym * kbit;
     eng_pu = nSym;
-    for t = 1:nSym
-        ti = randi(nC, K, 1);
-        s = Cq(ti);
-        n = (randn(LN, 1) + 1j * randn(LN, 1)) / sqrt(2);
-        y = sqrt(p) * (Htrue * s) + n;
 
-        for k = 1:K
-            Sl = servL{k};
-            Lk = numel(Sl);
-            o = zeros(Lk, 1);
-            for jj = 1:Lk
-                l = Sl(jj);
-                idx = (l - 1) * N + 1:l * N;
-                o(jj) = Vloc{l}(:, k)' * y(idx);
-            end
-            sh = aLin{k}' * o;
-            [~, mi] = min(abs(sh - Cq));
-            berU(1, k) = berU(1, k) + sum(Bmap(mi, :) ~= Bmap(ti(k), :));
-            nmseU(1, k) = nmseU(1, k) + abs(Cq(mi) - s(k))^2;
-        end
+    % ---- 1. linear MMSE ----
+    MI = nearest_idx(WL' * Y, Cq);
+    [berU(1, :), nmseU(1, :)] = count_err(MI, TI, Cq, S, Bmap);
 
-        yr = y;
-        di = zeros(K, 1);
-        for i = 1:K
-            k_i = ord(i);
-            Sl = sS{i};
-            Lk = numel(Sl);
-            o = zeros(Lk, 1);
-            for jj = 1:Lk
-                l = Sl(jj);
-                idx = (l - 1) * N + 1:l * N;
-                o(jj) = vS{i}(:, jj)' * yr(idx);
-            end
-            sh = aS{i}' * o;
-            [~, mi] = min(abs(sh - Cq));
-            di(k_i) = mi;
-            xh = Cq(mi);
-            for jj = 1:Lk
-                l = Sl(jj);
-                idx = (l - 1) * N + 1:l * N;
-                yr(idx) = yr(idx) - sqrt(p) * Hhat(idx, k_i) * xh;
-            end
-        end
-        for k = 1:K
-            berU(2, k) = berU(2, k) + sum(Bmap(di(k), :) ~= Bmap(ti(k), :));
-            nmseU(2, k) = nmseU(2, k) + abs(Cq(di(k)) - s(k))^2;
-        end
-
-        for variant = 1:2
-            useX = (variant == 2);
-            row = variant + 2;
-            P = struct('yr', {y}, 'dec', {zeros(K, 1)}, 'm', {0}, 'gr', {true});
-            for i = 1:K
-                k_i = ord(i);
-                Sl = sS{i};
-                Lk = numel(Sl);
-                maxChild = numel(P) * (2 * M + 2);
-                Q = repmat(struct('yr', [], 'dec', [], 'm', 0, 'gr', false), 1, maxChild);
-                qn = 0;
-                for pp = 1:numel(P)
-                    yrp = P(pp).yr;
-                    o = zeros(Lk, 1);
-                    for jj = 1:Lk
-                        l = Sl(jj);
-                        idx = (l - 1) * N + 1:l * N;
-                        o(jj) = vS{i}(:, jj)' * yrp(idx);
-                    end
-                    sh = aS{i}' * o;
-                    [dsort_cl, ix_cl] = sort(abs(sh - Cq));
-                    shad = (dsort_cl(1) >= dth_abs);
-                    if useX
-                        oa = zeros(L, 1);
-                        for l = 1:L
-                            idx = (l - 1) * N + 1:l * N;
-                            oa(l) = vA{i}(:, l)' * yrp(idx);
-                        end
-                        sh_f = aA{i}' * oa;
-                        [dsort_xap, ix_xap] = sort(abs(sh_f - Cq));
-                        shad_xap = (dsort_xap(1) >= dth_abs);
-                        cnt_stg = cnt_stg + 1;
-                        if shad || shad_xap
-                            cnt_shadXap = cnt_shadXap + 1;
-                            nc_xap = min(M, nC);
-                        else
-                            nc_xap = 1;
-                        end
-                        if shad
-                            nc_cl = min(M, nC);
-                        else
-                            nc_cl = 1;
-                        end
-                        ix_pool = [ix_xap(1:nc_xap); ix_cl(1:nc_cl)];
-                        d_pool = [dsort_xap(1:nc_xap); dsort_cl(1:nc_cl)];
-                        [ix, ui] = unique(ix_pool, 'stable');
-                        dsort = d_pool(ui);
-                        nc = numel(ix);
-                    else
-                        ix = ix_cl;
-                        dsort = dsort_cl;
-                        if shad
-                            nc = min(M, nC);
-                        else
-                            nc = 1;
-                        end
-                    end
-                    for c = 1:nc
-                        cq = Cq(ix(c));
-                        nd = P(pp).dec;
-                        nd(k_i) = cq;
-                        nyr = yrp;
-                        if useX
-                            nyr = nyr - sqrt(p) * Hhat(:, k_i) * cq;
-                        else
-                            for jj = 1:Lk
-                                l = Sl(jj);
-                                idx = (l - 1) * N + 1:l * N;
-                                nyr(idx) = nyr(idx) - sqrt(p) * Hhat(idx, k_i) * cq;
-                            end
-                        end
-                        qn = qn + 1;
-                        Q(qn).yr = nyr;
-                        Q(qn).dec = nd;
-                        Q(qn).m = P(pp).m + dsort(c)^2;
-                        Q(qn).gr = P(pp).gr && (c == 1);
-                    end
-                end
-                Q = Q(1:qn);
-                if numel(Q) > maxBr
-                    mv = [Q.m];
-                    gr = [Q.gr];
-                    [~, ordm] = sort(mv, 'ascend');
-                    keep = ordm(1:maxBr);
-                    gi = find(gr, 1);
-                    if ~isempty(gi) && ~any(keep == gi)
-                        keep(end) = gi;
-                    end
-                    Q = Q(keep);
-                end
-                P = Q;
-            end
-            best = inf;
-            bd = P(1).dec;
-            for pp = 1:numel(P)
-                r = y - sqrt(p) * (Hhat * P(pp).dec);
-                m = real(r' * r);
-                if m < best
-                    best = m;
-                    bd = P(pp).dec;
-                end
-            end
-            for k = 1:K
-                [~, mk] = min(abs(bd(k) - Cq));
-                berU(row, k) = berU(row, k) + sum(Bmap(mk, :) ~= Bmap(ti(k), :));
-                nmseU(row, k) = nmseU(row, k) + abs(Cq(mk) - s(k))^2;
-            end
-        end
+    % ---- 2. hard SIC (cluster cancellation) ----
+    YR = Y;
+    DI = zeros(K, nSym);
+    for i = 1:K
+        mi = nearest_idx(WS(:, i)' * YR, Cq);
+        DI(ord(i), :) = mi;
+        YR = YR - HS(:, i) * reshape(Cq(mi), 1, []);
     end
-    etaXap = cnt_shadXap / max(cnt_stg, 1);   % [CODE C] cross-AP gate firing rate
+    [berU(2, :), nmseU(2, :)] = count_err(DI, TI, Cq, S, Bmap);
+
+    % ---- 3./4. list SIC and list + cross-AP, all paths of a block of symbols as columns ----
+    cnt_stg = 0;
+    cnt_shadXap = 0;
+    Mm = min(M, nC);
+    chunk = 256;
+    for variant = 1:2
+        useX = (variant == 2);
+        BEST = zeros(K, nSym);
+        for c0 = 1:chunk:nSym
+            tt = c0:min(c0 + chunk - 1, nSym);
+            nT = numel(tt);
+            YRp = Y(:, tt);  OW = 1:nT;  DEC = zeros(K, nT);  MT = zeros(1, nT);  GR = true(1, nT);
+            for i = 1:K
+                nP = size(YRp, 2);
+                [dsc, ixc] = sort(abs((WS(:, i)' * YRp) - Cq), 1);
+                shad = dsc(1, :) >= dth_abs;
+                if useX
+                    [dsx, ixx] = sort(abs((WA(:, i)' * YRp) - Cq), 1);
+                    bigX = shad | (dsx(1, :) >= dth_abs);
+                    cnt_stg = cnt_stg + nP;
+                    cnt_shadXap = cnt_shadXap + sum(bigX);
+                    CI = [ixx(1:Mm, :); ixc(1:Mm, :)];
+                    CD = [dsx(1:Mm, :); dsc(1:Mm, :)];
+                    VL = [(1:Mm)' <= 1 + (Mm - 1) * bigX; (1:Mm)' <= 1 + (Mm - 1) * shad];
+                    for r = 2:2 * Mm                    % stable de-duplication of the pooled list
+                        dup = false(1, nP);
+                        for q = 1:r - 1
+                            dup = dup | (VL(q, :) & (CI(q, :) == CI(r, :)));
+                        end
+                        VL(r, :) = VL(r, :) & ~dup;
+                    end
+                    H1 = HA(:, i);
+                else
+                    CI = ixc(1:Mm, :);
+                    CD = dsc(1:Mm, :);
+                    VL = (1:Mm)' <= 1 + (Mm - 1) * shad;
+                    H1 = HS(:, i);
+                end
+                [rr, pp] = find(VL);                    % children: parent order, candidate order
+                lin = rr + (pp - 1) * size(VL, 1);
+                cix = reshape(CI(lin), 1, []);
+                cdd = reshape(CD(lin), 1, []);
+                pp = reshape(pp, 1, []);
+                YRc = YRp(:, pp) - H1 * reshape(Cq(cix), 1, []);
+                DECc = DEC(:, pp);  DECc(ord(i), :) = cix;
+                MTc = MT(pp) + cdd .^ 2;
+                GRc = GR(pp) & (reshape(rr, 1, []) == 1);
+                OWc = OW(pp);
+                nCh = numel(OWc);
+                cnt = accumarray(OWc(:), 1, [nT 1]);
+                if any(cnt > maxBr)                     % prune every symbol with more than maxBr paths
+                    bigO = cnt(OWc(:)) > maxBr;
+                    [~, so] = sortrows([OWc(:), MTc(:), (1:nCh)']);
+                    pos = (1:nCh)';
+                    first = [true; diff(reshape(OWc(so), [], 1)) ~= 0];
+                    st = pos(first);
+                    rk = zeros(nCh, 1);
+                    rk(so) = pos - st(cumsum(first)) + 1;   % rank by metric inside each symbol
+                    keep = ~bigO | (rk <= maxBr);
+                    lost = find(GRc(:) & bigO & ~keep);     % greedy path dropped: it replaces rank maxBr
+                    if ~isempty(lost)
+                        vic = zeros(nT, 1);
+                        lastk = find(bigO & (rk == maxBr));
+                        vic(reshape(OWc(lastk), [], 1)) = lastk;
+                        keep(vic(OWc(lost))) = false;
+                        keep(lost) = true;
+                        rk(lost) = maxBr;
+                    end
+                    key2 = pos;  key2(bigO) = rk(bigO);
+                    sel = find(keep);
+                    [~, o2] = sortrows([reshape(OWc(sel), [], 1), reshape(key2(sel), [], 1)]);
+                    sel = sel(o2);
+                else
+                    sel = 1:nCh;
+                end
+                YRp = YRc(:, sel);  DEC = DECc(:, sel);  MT = MTc(sel);  GR = GRc(sel);  OW = OWc(sel);
+            end
+            % best path of every symbol: smallest ||y - sqrt(p) Hhat x||^2, first one on ties
+            Rr = Y(:, tt(OW)) - hp * (Hhat * reshape(Cq(DEC), K, []));
+            mtr = sum(real(Rr) .^ 2 + imag(Rr) .^ 2, 1);
+            nP = numel(OW);
+            [~, so] = sortrows([OW(:), mtr(:), (1:nP)']);
+            firstI = so([true; diff(reshape(OW(so), [], 1)) ~= 0]);
+            BEST(:, tt) = DEC(:, firstI);
+        end
+        [berU(variant + 2, :), nmseU(variant + 2, :)] = count_err(BEST, TI, Cq, S, Bmap);
+    end
+    etaXap = cnt_shadXap / max(cnt_stg, 1);
+end
+
+function mi = nearest_idx(SH, Cq)
+% index of the nearest constellation point for every entry of SH (same shape)
+    [~, mi] = min(abs(reshape(SH, 1, []) - Cq), [], 1);
+    mi = reshape(mi, size(SH));
+end
+
+function [be, ne] = count_err(DI, TI, Cq, S, Bmap)
+% per-user bit errors and squared symbol errors summed over the symbols
+    [K, T] = size(DI);
+    be = reshape(sum(reshape(sum(Bmap(DI(:), :) ~= Bmap(TI(:), :), 2), K, T), 2), 1, K);
+    ne = reshape(sum(abs(reshape(Cq(DI), K, T) - S) .^ 2, 2), 1, K);
 end
 
 function [beL, beH, bits] = ber_linsic(Hhat, Htrue, C, serv, p, N, L, K, nSym, modOrder)
@@ -2937,18 +2892,15 @@ function O = eval_scheme(ST, bet, useCape, PD, FG, p, EP, wantRef, UEm, seed)
     O.nmse = sum(abs(Ht(:) - Hh(:)).^2) / sum(abs(Ht(:)).^2);
     Drt = cluster_rate_rule(ST.R2, Cs, p, ST.Dcn);
     O.sz = mean(sum(Drt, 1));
-    Cs0 = zeros(size(Cs));
-    bE = zeros(4, K);  nE = zeros(4, K);  bP = zeros(4, K);  nb = 0;  ne = 0;  eX = 0;
+    bE = zeros(4, K);  nE = zeros(4, K);  nb = 0;  ne = 0;  eX = 0;
     for mc = 1:EP.nReal
         Hm = reshape(Ht(:, mc, :), [L * Na, K]);
         He = reshape(Hh(:, mc, :), [L * Na, K]);
         [bu, nu, bpu, epu, ex] = metrics_case(He, Hm, Cs, Drt, p, Na, L, K, EP.nSym, EP.M, EP.dth, EP.maxBr, EP.mod);
         bE = bE + bu;  nE = nE + nu;  nb = nb + bpu;  ne = ne + epu;  eX = eX + ex;
-        bu = metrics_case(Hm, Hm, Cs0, Drt, p, Na, L, K, EP.nSym, EP.M, EP.dth, EP.maxBr, EP.mod);
-        bP = bP + bu;
     end
     O.be  = sum(bE, 2) / max(K * nb, 1);
-    O.bp  = sum(bP, 2) / max(K * nb, 1);
+    O.bp  = nan(4, 1);   % [CODE T] perfect-CSI pass removed: never used here, it doubled the run time
     O.eta = eX / EP.nReal;
     seU   = EP.prelog * log2(1 + 1 ./ max(nE / max(ne, 1), 1 / (EP.nReal * EP.nSym)));   % 4 x K effective-SINR SE
     O.se  = seU;
@@ -2966,5 +2918,39 @@ function s = ternary_str(c, a, b)
         s = a;
     else
         s = b;
+    end
+end
+
+function D = make_drop(Kc, L, nCol, rmin, rmax, hs_r, sL, wfix, hD, fc_GHz, hBS, hUT, c0, noisePow_dBm)
+% [CODE T] one random AP/user drop with uplink power control (received SNR at
+% each user's strongest AP equals the SNR axis value).
+    D.APp = (rand(L, 1) + 1j * rand(L, 1)) * sL;
+    UEp = drop_scenario(D.APp, Kc, L, min(nCol, floor(Kc / 2)), rmin, rmax, 'hotspot', hs_r, sL);
+    D.UEm = mod(real(UEp), sL) + 1j * mod(imag(UEp), sL);
+    D.APw = wrap_images(D.APp, sL, wfix);
+    [D.d3, D.sE, D.phL, D.thL, bet] = link_geometry(D.APw, UEp, hD, fc_GHz, hBS, hUT, c0, noisePow_dBm);
+    D.bet = bet ./ max(bet, [], 1);
+end
+
+function [O, nf] = run_task(D, G, PD, CA, CAs, idea, useCape, Kc, p, seed, CF)
+% [CODE T] one simulation task: one drop, one array/processing scheme, one SNR.
+    ST = array_stats(G, D.d3, D.sE, D.phL, D.thL, D.bet, CF.lambda, CF.eps_NF, CF.asd_phi, CF.asd_th, CF.clu_div);
+    nf = mean(ST.NF(:));
+    FG = cape_cfg(true, D.APp, D.APw, CF.sL, CF.hD, CF.nAP, CF.nCand, CF.J, CF.step0, CF.nIter, CF.consist);
+    FG.useCA = (idea > 0);  FG.co_idea = idea;  FG.CA = CA;  FG.CAs = CAs;
+    FG.nAng = CF.nAng;  FG.nRng = CF.nRng;  FG.nPk = max(CF.nPeak, ceil(Kc / 2));  FG.nSubMax = CF.nSubMax;
+    EP = struct('nReal', CF.nReal, 'nSym', CF.nSym, 'M', CF.M, 'dth', CF.dth, 'maxBr', CF.maxBr, ...
+                'mod', CF.mod, 'prelog', 1 - Kc / CF.tau_c, 'eps_NF', CF.eps_NF);
+    O = eval_scheme(ST, D.bet, useCape, PD, FG, p, EP, false, D.UEm, seed);
+end
+
+function nW = n_workers()
+% number of parallel workers (1 without a pool or without the Parallel Toolbox)
+    nW = 1;
+    try
+        pl = gcp('nocreate');
+        if isempty(pl), pl = gcp; end
+        nW = max(1, pl.NumWorkers);
+    catch
     end
 end
