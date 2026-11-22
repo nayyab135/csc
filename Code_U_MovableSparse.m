@@ -1,4 +1,5 @@
 clear; close all; clc;
+delete(gcp('nocreate'));   % close any parallel pool left open by a previous run (frees memory)
 %% ====================================================================
 %  CODE U : MOVABLE (SLIDING-MIRROR) SPARSE ARRAY vs STATIC SPARSE ARRAYS
 %           crowded near-field / hybrid-field cell-free uplink (from Code T)
@@ -1769,7 +1770,7 @@ function [berU, nmseU, bits_pu, eng_pu, etaXap] = metrics_case(Hhat, Htrue, C, s
     cnt_stg = 0;
     cnt_shadXap = 0;
     Mm = min(M, nC);
-    chunk = 256;
+    chunk = 64;   % symbol block of the list detector (memory only; results do not change)
     for variant = 1:2
         useX = (variant == 2);
         BEST = zeros(K, nSym);

@@ -25,6 +25,7 @@ def cut(text, start, end, new):
 
 
 HEADER = r"""clear; close all; clc;
+delete(gcp('nocreate'));   % close any parallel pool left open by a previous run (frees memory)
 %% ====================================================================
 %  CODE U : MOVABLE (SLIDING-MIRROR) SPARSE ARRAY vs STATIC SPARSE ARRAYS
 %           crowded near-field / hybrid-field cell-free uplink (from Code T)
@@ -523,6 +524,7 @@ function [O, nf] = run_task_u(D, G, PD, ES, useCape, Kc, p, seed, CF)
 end
 """
 src = src.rstrip() + '\n' + UFUN
+src = src.replace('    chunk = 256;', '    chunk = 64;   % symbol block of the list detector (memory only; results do not change)')
 for bad in ['codeT_arraycomp_results', '[CODE T] save BEFORE']:
     if bad in src:
         sys.exit('leftover: ' + bad)
