@@ -1,4 +1,5 @@
 clear; close all; clc;
+try, delete(gcp('nocreate')); catch, end   % close a parallel pool left open by a previous run (frees memory)
 %% ====================================================================
 %  CODE T : ARRAY COMPARISON IN A CROWDED CELL-FREE SYSTEM (from Code R)
 %  --------------------------------------------------------------------
@@ -19,10 +20,19 @@ clear; close all; clc;
 %  (paired comparison), so a 3-vs-4 or 5-vs-6 difference is caused only by
 %  the co-array processing. The co-array MUSIC subarray is NOT capped here,
 %  so the co-array gets its full smoothed virtual aperture.
+%  WITH vs WITHOUT CAPE: every scheme also runs without CAPE (local per-AP
+%  polar-domain OMP; with co-array processing the co-array angles seed it),
+%  on the same drops, channels, pilots and symbols, so the CAPE benefit for
+%  every detector (incl. the proposed Cross-AP List) is a paired comparison.
+%  CO-ARRAY METRICS: (a) true-lobe angle hit rate / RMSE of the channel
+%  estimator; (b) a classic DOA test of the same antennas: physical MUSIC vs
+%  co-array MUSIC, sources found vs number of sources, RMSE vs SNR.
+%  SETTINGS OF THE STUDY: fast_mode, nSetE, nSetK, nRealE, nSymE in the
+%  [CODE T] ARRAY SET block (the older settings at the top are NOT used here).
 %  SPEED: vectorised detector (same decisions as the symbol-by-symbol one),
 %  no unused perfect-CSI pass, one parallel task per (drop, scheme, SNR).
 %  The script prints an estimated run time after the first task.
-%  Figures T1..T10. Results are saved to codeT_arraycomp_results.mat BEFORE
+%  Figures T1..T17. Results are saved to codeT_arraycomp_results.mat BEFORE
 %  plotting; plot_codeT_figures.m redraws the figures without rerunning.
 %% ====================================================================
 
@@ -405,8 +415,8 @@ modOrder2 = 16;
 %% ====================================================================
 %  RUNTIME MODE
 %% ====================================================================
-fast_mode = false;
-if fast_mode
+legacy_fast_mode = false;   % [CODE T] NOT used by the Code T study: see fast_mode in the ARRAY SET block
+if legacy_fast_mode
     nSetups = 3;
     nReal   = 5;
     nSym    = 150;
@@ -606,33 +616,49 @@ nSNR     = numel(SNR_dB);
 [~, snr_ref_idx] = min(abs(SNR_dB - 10));
 snr_ref_dB = SNR_dB(snr_ref_idx);
 
+% ---- [CODE T] run size. The BER noise comes from the random DROPS (a few bad
+%      drops carry most errors), not from the symbols, so the drops are many
+%      and the symbols per drop fewer. ----
+fast_mode = false;    % true: quick check;  false: paper run
+if fast_mode
+    nSetE = 30;   nSetK = 20;
+else
+    nSetE = 200;  nSetK = 100;   % random AP/user drops: SNR study / user-count sweep
+end
+nRealE = 2;                   % channel realisations per drop
+nSymE  = 400;                 % symbols per realisation: 200 x 2 x 400 x 16 users x 4 bits = 1e7 bits per point
+
 eqN_study   = true;
-en_names    = {'ULA lambda/2 + CAPE', sprintf('ULA %g lambda + CAPE', ulaw_d_lambda), 'Nested + CAPE', ...
-               'Nested + co-array + CAPE', 'Coprime + CAPE', 'Coprime + co-array + CAPE'};
-en_leg      = {'ULA (\lambda/2)', sprintf('ULA (%g\\lambda)', ulaw_d_lambda), 'Nested', ...
+tB_names    = {'ULA lambda/2', sprintf('ULA %g lambda', ulaw_d_lambda), 'Nested', ...
+               'Nested + co-array', 'Coprime', 'Coprime + co-array'};
+tB_leg      = {'ULA (\lambda/2)', sprintf('ULA (%g\\lambda)', ulaw_d_lambda), 'Nested', ...
                'Nested + co-array', 'Coprime', 'Coprime + co-array'};
 if sp_equal_aperture
-    en_leg(3:6) = {'Nested (stretched)', 'Nested (stretched) + co-array', ...
+    tB_leg(3:6) = {'Nested (stretched)', 'Nested (stretched) + co-array', ...
                    'Coprime (stretched)', 'Coprime (stretched) + co-array'};
 end
-en_geom     = {'ula', 'ulaw', 'nested', 'nested', 'coprime', 'coprime'};
-en_idea     = [0 0 0 1 0 1];   % 1 = add difference co-array processing (same antennas)
-en_cape     = [1 1 1 1 1 1];   % CAPE for every scheme: the array is the only variable
-en_arr      = [1 2 3 3 4 4];   % physical array of each scheme (1 ULA, 2 wide ULA, 3 nested, 4 coprime)
+% schemes 1-6: with CAPE (as before); schemes 7-12: the same arrays WITHOUT CAPE
+en_names    = [cellfun(@(s) [s ' + CAPE'], tB_names, 'UniformOutput', false), ...
+               cellfun(@(s) [s ', no CAPE'], tB_names, 'UniformOutput', false)];
+en_leg      = [tB_leg, cellfun(@(s) [s ', no CAPE'], tB_leg, 'UniformOutput', false)];
+en_geom     = repmat({'ula', 'ulaw', 'nested', 'nested', 'coprime', 'coprime'}, 1, 2);
+en_idea     = repmat([0 0 0 1 0 1], 1, 2);   % 1 = add difference co-array processing (same antennas)
+en_cape     = [ones(1, 6), zeros(1, 6)];     % 1 = CAPE, 0 = local per-AP estimation
+en_arr      = repmat([1 2 3 3 4 4], 1, 2);   % physical array (1 ULA, 2 wide ULA, 3 nested, 4 coprime)
 nSchE       = numel(en_names);
 en_caseName = {'Crowded (N = 8, K = 16)'};
 en_N0       = 8;               % 8 PHYSICAL antennas per AP
 en_K        = 16;              % 16 users (K > N: loaded cell-free system)
 nCaseE      = numel(en_N0);
-nSetE       = 10;              % random AP/user drops (>= 10 for the paper; 4 for a quick look)
-nRealE      = 4;               % channel realisations per drop
-nSymE       = 800;             % symbols per realisation: 10 x 4 x 800 x 16 users x 4 bits
-                               % = 2.0e6 bits per point, enough to show BER ~1e-5
+Ksw         = [8 12 16 20 24];          % user-count sweep (all K >= N = 8: crowded)
+Ksw_sch     = [1:6, 8, 9, 11];          % CAPE schemes + no-CAPE wide ULA, nested, coprime
+                                        % (dense ULA: no near-field links, no CAPE effect)
 if sp_equal_aperture           % target aperture = aperture of the wide ULA
     sp_Dtgt = (en_N0(1) - 1) * ulaw_eta * lambda / 2;
 else
     sp_Dtgt = [];
 end
+tolS = 0.5 * lambda * ((en_N0(1) - 1) * ulaw_eta * lambda / 2)^(-1);   % angle hit tolerance: half a beamwidth of 2.8 m
 
 % ---- prebuild geometry, polar dictionary and co-arrays per (scheme, case) ----
 EN_geo = cell(nSchE, nCaseE);  EN_PD = cell(nSchE, nCaseE);
@@ -661,6 +687,8 @@ EN_time = zeros(nSchE, nCaseE, nSetE);              % mean run time (complexity 
 EN_fh   = zeros(nSchE, nCaseE, nSetE);              % fused APs per user (fronthaul proxy)
 EN_nf   = zeros(nSchE, nCaseE, nSetE);              % near-field link fraction
 EN_seD  = nan(4, max(en_K), nSchE, nCaseE, nSetE);  % [CODE O] sized by the largest K
+EN_hit  = nan(nSchE, nCaseE, nSNR, nSetE);          % true-lobe angle hit rate of the estimator
+EN_rmse = nan(nSchE, nCaseE, nSNR, nSetE);          % angle RMSE of the hits
 
 if eqN_study
 fprintf('\n=== [CODE T] array comparison: %d schemes x %d cases x %d setups ===\n', nSchE, nCaseE, nSetE);
@@ -681,7 +709,7 @@ CF = struct('lambda', lambda, 'eps_NF', eps_NF, 'asd_phi', ASD_varphi, 'asd_th',
             'J', cape_J, 'step0', cape_step0, 'nIter', cape_nIter, 'consist', cape_consist, ...
             'nAng', ca_nAngGrid, 'nRng', ca_nRangeGrid, 'nPeak', ca_nPeak, 'nSubMax', ca_Nsub_max, ...
             'nReal', nRealE, 'nSym', nSymE, 'M', M_lst, 'dth', d_th, 'maxBr', maxBr, ...
-            'mod', modOrder, 'tau_c', tau_c);
+            'mod', modOrder, 'tau_c', tau_c, 'tolS', tolS);
 rng(20261119);
 DRP = cell(nSetE, nCaseE);
 for ns = 1:nSetE
@@ -694,15 +722,16 @@ sz    = [nSNR, nSchE, nCaseE, nSetE];
 nTask = prod(sz);
 T_nmse = zeros(1, nTask);  T_be = zeros(4, nTask);  T_sum = zeros(4, nTask);  T_loc = nan(1, nTask);
 T_time = zeros(1, nTask);  T_fh = zeros(1, nTask);  T_nf  = zeros(1, nTask);
-T_seD  = nan(4, max(en_K), nTask);
+T_seD  = nan(4, max(en_K), nTask);  T_hit = nan(1, nTask);  T_rm = nan(1, nTask);
 nW = n_workers();
 [~, scP] = max(en_idea);                         % heaviest scheme (co-array) for the time estimate
 tP = tic;
 run_task(DRP{1, 1}, EN_geo{scP, 1}, EN_PD{scP, 1}, EN_CA{scP, 1}, EN_CAs{scP, 1}, en_idea(scP), ...
          en_cape(scP), en_K(1), SNR_lin(snr_ref_idx), 1, CF);
 tP = toc(tP);
-fprintf('  one task takes about %.0f s -> main study at most about %.0f min with %d worker(s)\n', ...
-        tP, tP * nTask / nW / 60, nW);
+fprintf(['  one task takes about %.0f s -> main study at most about %.0f min, user sweep about %.0f min, ' ...
+         'with %d worker(s)\n'], tP, tP * nTask / nW / 60, ...
+        tP * numel(Ksw) * numel(Ksw_sch) * nSetK / nW / 60, nW);
 tMain = tic;
 parfor tk = 1:nTask
     [si, scE, caE, ns] = ind2sub(sz, tk);
@@ -711,7 +740,7 @@ parfor tk = 1:nTask
                         en_idea(scE), en_cape(scE), en_K(caE), SNR_lin(si), seed, CF);
     T_nmse(tk) = O.nmse;  T_be(:, tk) = O.be;  T_sum(:, tk) = O.sum;
     if ~isempty(O.loc), T_loc(tk) = median(O.loc); end
-    T_time(tk) = O.time;  T_fh(tk) = O.nfus;  T_nf(tk) = nfv;
+    T_time(tk) = O.time;  T_fh(tk) = O.nfus;  T_nf(tk) = nfv;  T_hit(tk) = O.hit;  T_rm(tk) = O.rmse;
     sd = nan(4, max(en_K));
     if si == snr_ref_idx, sd(:, 1:size(O.se, 2)) = O.se; end
     T_seD(:, :, tk) = sd;
@@ -721,6 +750,8 @@ EN_nmse = permute(reshape(T_nmse, sz), [2 3 1 4]);
 EN_be   = permute(reshape(T_be, [4 sz]), [1 3 4 2 5]);
 EN_sum  = permute(reshape(T_sum, [4 sz]), [1 3 4 2 5]);
 EN_loc  = permute(reshape(T_loc, sz), [2 3 1 4]);
+EN_hit  = permute(reshape(T_hit, sz), [2 3 1 4]);
+EN_rmse = permute(reshape(T_rm, sz), [2 3 1 4]);
 EN_time = reshape(mean(reshape(T_time, sz), 1), nSchE, nCaseE, nSetE);
 EN_fh   = reshape(mean(reshape(T_fh, sz), 1), nSchE, nCaseE, nSetE);
 EN_nf   = reshape(mean(reshape(T_nf, sz), 1), nSchE, nCaseE, nSetE);
@@ -728,36 +759,64 @@ seAll   = reshape(T_seD, [4, max(en_K), sz]);
 EN_seD  = reshape(seAll(:, :, snr_ref_idx, :, :, :), [4, max(en_K), nSchE, nCaseE, nSetE]);
 end
 
-% ---- [CODE T] user-count sweep at the reference SNR, all six schemes ----
+% ---- [CODE T] user-count sweep at the reference SNR ----
 % N is fixed at en_N0(1) = 32, so the prebuilt geometry, polar dictionary and
 % co-array of case 1 are reused (identical to rebuilding them).
-Ksw     = [8 12 16 20 24];       % all K >= N = 8: crowded
-Ksw_sch = 1:nSchE;
+% Ksw and Ksw_sch are set in the ARRAY SET block; nSetK drops per K.
 nKsw    = numel(Ksw);  nKsch = numel(Ksw_sch);
-EN_Kbe  = zeros(nKsch, nKsw, nSetE);    % BER, Cross-AP detector
-EN_Ksum = zeros(nKsch, nKsw, nSetE);    % sum SE, Cross-AP detector
+EN_Kbe  = zeros(nKsch, nKsw, nSetK);    % BER, Cross-AP detector
+EN_Ksum = zeros(nKsch, nKsw, nSetK);    % sum SE, Cross-AP detector
 if eqN_study
 fprintf('\n=== [CODE T] user-count sweep at %d dB: K = %s ===\n', SNR_dB(snr_ref_idx), mat2str(Ksw));
-DRK = cell(nSetE, nKsw);
-for ns = 1:nSetE
+DRK = cell(nSetK, nKsw);
+for ns = 1:nSetK
     for ik = 1:nKsw
         DRK{ns, ik} = make_drop(Ksw(ik), L, n_collinear_pairs, r_min_NF, r_max_en, hs_r, squareLen, ...
                                 wrap_fix, hDiff, fc_GHz, hBS, hUT, c0, noisePow_dBm);
     end
 end
-nTk  = nKsch * nKsw * nSetE;
+nTk  = nKsch * nKsw * nSetK;
 K_be = zeros(1, nTk);  K_sum = zeros(1, nTk);
 tSw  = tic;
 parfor tk = 1:nTk
-    [jj, ik, ns] = ind2sub([nKsch, nKsw, nSetE], tk);
+    [jj, ik, ns] = ind2sub([nKsch, nKsw, nSetK], tk);
     scE = Ksw_sch(jj);
     O = run_task(DRK{ns, ik}, EN_geo{scE, 1}, EN_PD{scE, 1}, EN_CA{scE, 1}, [], en_idea(scE), ...
                  en_cape(scE), Ksw(ik), SNR_lin(snr_ref_idx), 3e7 + 1e4 * ns + 100 * ik, CF);
     K_be(tk) = O.be(4);  K_sum(tk) = O.sum(4);
 end
-EN_Kbe  = reshape(K_be, nKsch, nKsw, nSetE);
-EN_Ksum = reshape(K_sum, nKsch, nKsw, nSetE);
+EN_Kbe  = reshape(K_be, nKsch, nKsw, nSetK);
+EN_Ksum = reshape(K_sum, nKsch, nKsw, nSetK);
 fprintf('  user-count sweep: %d tasks done in %.1f min\n', nTk, toc(tSw) / 60);
+end
+
+
+% ---- [CODE T] classic DOA test of the four physical arrays: physical MUSIC vs
+%      co-array MUSIC on the SAME antennas. D far-field sources at random
+%      angles inside the array's unambiguous sector (minimum separation),
+%      DOA_T snapshots. Shows the co-array's degrees-of-freedom advantage
+%      (more sources than antennas), which BER cannot show. ----
+DOA_D   = 2:2:20;             % numbers of sources
+DOA_D0  = 6;                  % sources for the RMSE-vs-SNR curve
+DOA_T   = 200;                % snapshots (one coherence block)
+DOA_snr = SNR_dB;             % SNR per antenna per source [dB]
+[~, iD] = min(abs(DOA_snr - 10));  DOA_snrD = DOA_snr(iD);
+if fast_mode, DOA_nTr = 60; else, DOA_nTr = 300; end
+DOA_fP = zeros(4, numel(DOA_D));  DOA_fC = DOA_fP;  DOA_pP = DOA_fP;  DOA_pC = DOA_fP;
+DOA_rP = zeros(4, numel(DOA_snr));  DOA_rC = DOA_rP;  DOA_lim = zeros(4, 2);
+if eqN_study
+fprintf('\n=== [CODE T] DOA test: physical vs co-array MUSIC, %d trials per point ===\n', DOA_nTr);
+tDoa = tic;
+DOA_arr = [1 2 3 5];
+for a = 1:4
+    sc = DOA_arr(a);
+    rng(4e7 + 100 * a);
+    [DOA_fP(a, :), DOA_fC(a, :), DOA_pP(a, :), DOA_pC(a, :), ~, ~, DOA_lim(a, :)] = ...
+        doa_test(EN_geo{sc, 1}, EN_CA{sc, 1}, DOA_D, 10^(DOA_snrD / 10), DOA_T, DOA_nTr, ca_Nsub_max, lambda);
+    [~, ~, ~, ~, DOA_rP(a, :), DOA_rC(a, :)] = ...
+        doa_test(EN_geo{sc, 1}, EN_CA{sc, 1}, DOA_D0, 10.^(DOA_snr / 10), DOA_T, DOA_nTr, ca_Nsub_max, lambda);
+end
+fprintf('  DOA test done in %.1f min\n', toc(tDoa) / 60);
 end
 
 if eqN_study
@@ -765,38 +824,64 @@ if eqN_study
     save('codeT_arraycomp_results.mat', 'SNR_dB', 'snr_ref_idx', 'lambda', 'L', ...
          'en_names', 'en_leg', 'en_geom', 'en_idea', 'en_cape', 'en_arr', 'en_caseName', ...
          'en_N0', 'en_K', 'ulaw_d_lambda', 'sp_equal_aperture', 'modOrder', 'clu_div', ...
-         'nSetE', 'nRealE', 'nSymE', 'EN_geo', ...
-         'EN_nmse', 'EN_be', 'EN_sum', 'EN_loc', 'EN_time', 'EN_fh', 'EN_nf', 'EN_seD', ...
-         'Ksw', 'Ksw_sch', 'EN_Kbe', 'EN_Ksum');
+         'fast_mode', 'nSetE', 'nSetK', 'nRealE', 'nSymE', 'tolS', 'EN_geo', ...
+         'EN_nmse', 'EN_be', 'EN_sum', 'EN_loc', 'EN_hit', 'EN_rmse', 'EN_time', 'EN_fh', 'EN_nf', 'EN_seD', ...
+         'Ksw', 'Ksw_sch', 'EN_Kbe', 'EN_Ksum', ...
+         'DOA_D', 'DOA_D0', 'DOA_T', 'DOA_snr', 'DOA_snrD', 'DOA_nTr', 'DOA_fP', 'DOA_fC', ...
+         'DOA_pP', 'DOA_pC', 'DOA_rP', 'DOA_rC', 'DOA_lim');
     fprintf('\nResults saved to codeT_arraycomp_results.mat\n');
 
-    %% ===================== [CODE T] FIGURES T1-T10 =====================
-    %  Every scheme uses CAPE. Colour = physical array. Solid line + filled
-    %  marker = processing on the PHYSICAL array. Dashed line + open marker =
-    %  the SAME antennas with difference co-array processing added.
+    %% ===================== [CODE T] FIGURES T1-T17 =====================
+    %  T1-T10 : the six schemes WITH CAPE (as before). Colour = physical array.
+    %           Solid line + filled marker = processing on the PHYSICAL array;
+    %           dashed line + open marker = the SAME antennas with difference
+    %           co-array processing added.
+    %  T11-T14: CAPE versus NO CAPE (local per-AP polar-domain OMP), same drops,
+    %           channels, pilots and symbols. Dotted = no CAPE, physical processing;
+    %           dash-dot = no CAPE, co-array processing.
+    %  T15    : angle acquisition of the channel estimator (true-lobe hit rate).
+    %  T16    : paired effect of co-array processing on NMSE, localisation, angle.
+    %  T17    : classic DOA test of the four arrays: physical MUSIC vs co-array
+    %           MUSIC, sources found vs number of sources, RMSE vs SNR.
     %  SNR axis = received SNR per antenna at each user's strongest AP.
     tNs   = numel(en_names);  tNc = numel(en_N0);  tNsnr = numel(SNR_dB);
     tSet  = size(EN_be, 5);
     [~, tSi] = min(abs(SNR_dB - 10));             % 10 dB reference point
     tDet  = 4;                                     % Cross-AP List detector
     tXl   = 'SNR [dB] (received, strongest AP)';
+    tC    = find(en_cape == 1);                    % schemes with CAPE
     tArrNm  = {'ULA (\lambda/2)', en_leg{2}, en_leg{3}, en_leg{5}};
-    tArrSch = [1 2 3 5];                           % one scheme per physical array
+    tArrSch = [1 2 3 5];                           % one CAPE scheme per physical array
     tArrCol = {[0.35 0.35 0.35], [0.00 0.45 0.00], [0.00 0.10 0.55], [0.50 0.10 0.60]};
     tCol  = tArrCol(en_arr);
     tLs   = repmat({'-'}, 1, tNs);   tLs(en_idea > 0) = {'--'};
-    tMk   = {'d', 'o', 's', 's', '^', '^'};
+    tMk   = repmat({'d', 'o', 's', 's', '^', '^'}, 1, ceil(tNs / 6));
     tMfc  = tCol;                    tMfc(en_idea > 0) = {'none'};
-    tPair = [3 4; 5 6];                            % [physical, co-array] pairs
+    tLs2  = tLs;                                   % T11-T16 styles: no CAPE dotted / dash-dot
+    tLs2(en_cape == 0 & en_idea == 0) = {':'};
+    tLs2(en_cape == 0 & en_idea > 0)  = {'-.'};
+    tMfc2 = tMfc;                    tMfc2(en_cape == 0) = {'none'};
+    tPair = [3 4; 5 6];                            % [physical, co-array] pairs, CAPE
     tPairNm = {'Nested', 'Coprime'};
+    tNoC  = zeros(1, tNs);                         % matching no-CAPE scheme of every CAPE scheme
+    for sc = tC
+        jn = find(en_cape == 0 & strcmp(en_geom, en_geom{sc}) & en_idea == en_idea(sc), 1);
+        if ~isempty(jn), tNoC(sc) = jn; end
+    end
+    tPairL = [tNoC(3) tNoC(4); tNoC(5) tNoC(6)];   % [physical, co-array] pairs, no CAPE
     tW    = 80 + 560 * tNc;                        % figure width for tNc case panels
+    tFl   = 1 / (max(en_K) * nRealE * nSymE * log2(modOrder) * tSet);   % one bit error in all drops
     mNM = mean(EN_nmse, 4);  mBE = mean(EN_be, 5);  mSU = mean(EN_sum, 5);
-    mLC = nan(tNs, tNc, tNsnr);
+    mLC = nan(tNs, tNc, tNsnr);  mHT = nan(tNs, tNc, tNsnr);  mRM = nan(tNs, tNc, tNsnr);
     for sc = 1:tNs
         for ca = 1:tNc
             for si = 1:tNsnr
-                v = EN_loc(sc, ca, si, :);  v = v(isfinite(v));
+                v = EN_loc(sc, ca, si, :);   v = v(isfinite(v));
                 if ~isempty(v), mLC(sc, ca, si) = median(v); end
+                v = EN_hit(sc, ca, si, :);   v = v(isfinite(v));
+                if ~isempty(v), mHT(sc, ca, si) = mean(v); end
+                v = EN_rmse(sc, ca, si, :);  v = v(isfinite(v));
+                if ~isempty(v), mRM(sc, ca, si) = sqrt(mean(v .^ 2)); end
             end
         end
     end
@@ -829,7 +914,7 @@ if eqN_study
         grid on; box on; ylim([-40 0]); xlabel('sin(\theta)'); ylabel('beampattern [dB]'); title(tArrNm{a});
     end
 
-    % ---- T3-T5: NMSE, BER and sum SE vs SNR (all six schemes) ----
+    % ---- T3-T5: NMSE, BER and sum SE vs SNR (the six schemes with CAPE) ----
     tMet = {mNM, mBE, mSU};
     tNm  = {'T3 Channel NMSE vs SNR', 'T4 BER vs SNR', 'T5 Sum SE vs SNR'};
     tYl  = {'channel NMSE', 'BER (Cross-AP List)', 'sum SE [bit/s/Hz]'};
@@ -838,48 +923,49 @@ if eqN_study
         figure('Name', tNm{f}, 'Position', [30 30 tW 470]);
         for ca = 1:tNc
             subplot(1, tNc, ca); hold on; box on; grid on;
-            for sc = 1:tNs
+            for sc = tC
                 if f == 1
                     y = squeeze(tMet{f}(sc, ca, :));
                 else
                     y = squeeze(tMet{f}(tDet, sc, ca, :));
                 end
-                if f == 2, y = max(y, 1e-6); end
+                if f == 2, y = max(y, tFl); end
                 plot(SNR_dB, y, [tLs{sc} tMk{sc}], 'Color', tCol{sc}, 'MarkerFaceColor', tMfc{sc}, ...
                      'LineWidth', 1.5, 'DisplayName', en_leg{sc});
             end
             if f < 3, set(gca, 'YScale', 'log'); end
-            if f == 2, ylim([1e-6 1]); end
+            if f == 2, ylim([max(tFl, 1e-7) 1]); end
             xlabel(tXl); ylabel(tYl{f});
             title(sprintf('%s, all with CAPE', en_caseName{ca}));
             legend('Location', tLoc{f});
         end
     end
 
-    % ---- T6: BER and sum SE vs number of users K at 10 dB ----
+    % ---- T6: BER and sum SE vs number of users K at 10 dB (schemes with CAPE) ----
     mKbe = mean(EN_Kbe, 3);  mKsum = mean(EN_Ksum, 3);
     figure('Name', 'T6 BER and sum SE vs number of users', 'Position', [30 30 1150 470]);
     for f = 1:2
         subplot(1, 2, f); hold on; box on; grid on;
         for j = 1:numel(Ksw_sch)
             sc = Ksw_sch(j);
-            if f == 1, y = max(mKbe(j, :), 1e-6); else, y = mKsum(j, :); end
+            if en_cape(sc) == 0, continue; end
+            if f == 1, y = max(mKbe(j, :), tFl); else, y = mKsum(j, :); end
             plot(Ksw, y, [tLs{sc} tMk{sc}], 'Color', tCol{sc}, 'MarkerFaceColor', tMfc{sc}, ...
                  'LineWidth', 1.5, 'DisplayName', en_leg{sc});
         end
         xlabel('number of users K');
         if f == 1
             set(gca, 'YScale', 'log'); ylabel('BER (Cross-AP List)');
-            title(sprintf('BER vs K at %d dB, N = %d per AP', SNR_dB(tSi), en_N0(1)));
+            title(sprintf('BER vs K at %d dB, N = %d per AP, with CAPE', SNR_dB(tSi), en_N0(1)));
         else
             ylabel('sum SE [bit/s/Hz]');
-            title(sprintf('Sum SE vs K at %d dB, N = %d per AP', SNR_dB(tSi), en_N0(1)));
+            title(sprintf('Sum SE vs K at %d dB, N = %d per AP, with CAPE', SNR_dB(tSi), en_N0(1)));
         end
         legend('Location', 'northwest');
     end
 
     % ---- T7: does co-array processing help? paired difference, same antennas ----
-    figure('Name', 'T7 Effect of co-array processing (paired)', 'Position', [30 30 tW 760]);
+    figure('Name', 'T7 Effect of co-array processing on BER and SE (paired)', 'Position', [30 30 tW 760]);
     tYl7 = {'BER change with co-array [%]  (<0 = better)', 'sum-SE change with co-array [%]  (>0 = better)'};
     for row = 1:2
         for ca = 1:tNc
@@ -902,21 +988,21 @@ if eqN_study
                 ttl = [ttl sprintf('  %s %d%%', tPairNm{pr}, round(100 * mean(Dd(:) == 0)))]; %#ok<AGROW>
             end
             xlabel(tXl); ylabel(tYl7{row});
-            title({en_caseName{ca}, ['identical:' ttl]});
+            title({[en_caseName{ca} ', with CAPE'], ['identical:' ttl]});
             legend('Location', 'best');
         end
     end
 
-    % ---- T8: localisation error vs SNR ----
+    % ---- T8: localisation error vs SNR (CAPE only: local estimation gives no position) ----
     figure('Name', 'T8 Localisation error vs SNR', 'Position', [30 30 tW 470]);
     for ca = 1:tNc
         subplot(1, tNc, ca); hold on; box on; grid on;
-        for sc = 1:tNs
+        for sc = tC(2:end)
             plot(SNR_dB, squeeze(mLC(sc, ca, :)), [tLs{sc} tMk{sc}], 'Color', tCol{sc}, ...
                  'MarkerFaceColor', tMfc{sc}, 'LineWidth', 1.5, 'DisplayName', en_leg{sc});
         end
         set(gca, 'YScale', 'log'); xlabel(tXl); ylabel('median position error [m]');
-        title(en_caseName{ca}); legend('Location', 'northeast');
+        title([en_caseName{ca} ' (dense ULA: no near-field links, no position)']); legend('Location', 'northeast');
     end
 
     % ---- T9: array hardware metrics ----
@@ -944,7 +1030,7 @@ if eqN_study
         ylabel(tYl9{m});  title(tTt9{m});
     end
 
-    % ---- T10: the four detectors for each physical array (first case) ----
+    % ---- T10: the four detectors for each physical array (with CAPE) ----
     tDn = {'Linear MMSE', 'Hard SIC', 'List SIC', 'Cross-AP List'};
     tDs = {':', '-.', '--', '-'};
     figure('Name', 'T10 BER of the four detectors', 'Position', [30 30 1100 760]);
@@ -952,38 +1038,226 @@ if eqN_study
         sc = tArrSch(a);
         subplot(2, 2, a); hold on; box on; grid on;
         for d = 1:4
-            plot(SNR_dB, max(squeeze(mBE(d, sc, 1, :)), 1e-6), [tDs{d} tMk{sc}], 'Color', tArrCol{a}, ...
+            plot(SNR_dB, max(squeeze(mBE(d, sc, 1, :)), tFl), [tDs{d} tMk{sc}], 'Color', tArrCol{a}, ...
                  'MarkerFaceColor', tArrCol{a}, 'LineWidth', 1.3, 'DisplayName', tDn{d});
         end
-        set(gca, 'YScale', 'log'); ylim([1e-6 1]); xlabel(tXl); ylabel('BER');
-        title(sprintf('%s, %s', tArrNm{a}, en_caseName{1})); legend('Location', 'southwest');
+        set(gca, 'YScale', 'log'); ylim([max(tFl, 1e-7) 1]); xlabel(tXl); ylabel('BER');
+        title(sprintf('%s, %s, with CAPE', tArrNm{a}, en_caseName{1})); legend('Location', 'southwest');
+    end
+
+    % ---- T11: CAPE benefit on BER, every physical array (with vs without CAPE) ----
+    figure('Name', 'T11 CAPE benefit: BER with and without CAPE', 'Position', [30 30 1150 800]);
+    for a = 1:4
+        subplot(2, 2, a); hold on; box on; grid on;
+        sA = find(en_arr == a);
+        for sc = sA
+            plot(SNR_dB, max(squeeze(mBE(tDet, sc, 1, :)), tFl), [tLs2{sc} tMk{sc}], 'Color', tCol{sc}, ...
+                 'MarkerFaceColor', tMfc2{sc}, 'LineWidth', 1.4, 'DisplayName', en_leg{sc});
+        end
+        sc = tArrSch(a);  g = mBE(tDet, tNoC(sc), 1, tSi) / max(mBE(tDet, sc, 1, tSi), tFl);
+        set(gca, 'YScale', 'log'); ylim([max(tFl, 1e-7) 1]); xlabel(tXl); ylabel('BER (Cross-AP List)');
+        title(sprintf('%s: BER(no CAPE) / BER(CAPE) = %.2f at %d dB', tArrNm{a}, g, SNR_dB(tSi)));
+        legend('Location', 'southwest');
+    end
+
+    % ---- T12: CAPE benefit on NMSE and sum SE ----
+    figure('Name', 'T12 CAPE benefit: NMSE and sum SE with and without CAPE', 'Position', [30 30 1500 760]);
+    for a = 1:4
+        sA = find(en_arr == a);
+        for row = 1:2
+            subplot(2, 4, (row - 1) * 4 + a); hold on; box on; grid on;
+            for sc = sA
+                if row == 1, y = squeeze(mNM(sc, 1, :)); else, y = squeeze(mSU(tDet, sc, 1, :)); end
+                plot(SNR_dB, y, [tLs2{sc} tMk{sc}], 'Color', tCol{sc}, 'MarkerFaceColor', tMfc2{sc}, ...
+                     'LineWidth', 1.4, 'DisplayName', en_leg{sc});
+            end
+            xlabel(tXl);
+            if row == 1
+                set(gca, 'YScale', 'log'); ylabel('channel NMSE'); title(tArrNm{a});
+                legend('Location', 'southwest');
+            else
+                ylabel('sum SE [bit/s/Hz] (Cross-AP List)'); title(tArrNm{a});
+                legend('Location', 'northwest');
+            end
+        end
+    end
+
+    % ---- T13: CAPE gain per detector at 10 dB, and the gain of the proposed Cross-AP List ----
+    tGB = nan(4, 6);  tGS = nan(1, 6);  tXG = nan(2, 6);
+    for j = 1:6
+        sc = tC(j);  sn = tNoC(sc);
+        if sn == 0, continue; end
+        for d = 1:4
+            tGB(d, j) = max(mBE(d, sn, 1, tSi), tFl) / max(mBE(d, sc, 1, tSi), tFl);
+        end
+        tGS(j) = 100 * (mSU(tDet, sc, 1, tSi) / mSU(tDet, sn, 1, tSi) - 1);
+        tXG(1, j) = max(mBE(3, sn, 1, tSi), tFl) / max(mBE(4, sn, 1, tSi), tFl);   % List SIC / Cross-AP, no CAPE
+        tXG(2, j) = max(mBE(3, sc, 1, tSi), tFl) / max(mBE(4, sc, 1, tSi), tFl);   % List SIC / Cross-AP, CAPE
+    end
+    tXn = {'ULA \lambda/2', 'ULA wide', 'Nested', 'Nest.+co', 'Coprime', 'Copr.+co'};
+    figure('Name', 'T13 CAPE gain per detector and Cross-AP List gain (10 dB)', 'Position', [30 30 1500 470]);
+    subplot(1, 3, 1); hb = bar(tGB.'); grid on; box on; hold on;
+    plot([0.4 6.6], [1 1], 'k-', 'HandleVisibility', 'off');
+    set(gca, 'YScale', 'log', 'XTick', 1:6, 'XTickLabel', tXn);
+    ylabel('BER(no CAPE) / BER(CAPE)   (>1: CAPE helps)'); legend(hb, tDn, 'Location', 'northwest');
+    title(sprintf('CAPE gain on BER of each detector, %d dB', SNR_dB(tSi)));
+    subplot(1, 3, 2); bar(tGS); grid on; box on;
+    set(gca, 'XTick', 1:6, 'XTickLabel', tXn); ylabel('sum-SE gain of CAPE [%] (Cross-AP List)');
+    title(sprintf('CAPE gain on sum SE, %d dB', SNR_dB(tSi)));
+    subplot(1, 3, 3); hb = bar(tXG.'); grid on; box on; hold on;
+    plot([0.4 6.6], [1 1], 'k-', 'HandleVisibility', 'off');
+    set(gca, 'YScale', 'log', 'XTick', 1:6, 'XTickLabel', tXn);
+    ylabel('BER(List SIC) / BER(Cross-AP List)   (>1: Cross-AP helps)');
+    legend(hb, {'without CAPE', 'with CAPE'}, 'Location', 'northwest');
+    title(sprintf('Gain of the proposed Cross-AP List, %d dB', SNR_dB(tSi)));
+
+    % ---- T14: CAPE benefit vs number of users K at 10 dB ----
+    figure('Name', 'T14 CAPE benefit vs number of users', 'Position', [30 30 1150 470]);
+    for f = 1:2
+        subplot(1, 2, f); hold on; box on; grid on;
+        for j = 1:numel(Ksw_sch)
+            sc = Ksw_sch(j);
+            if en_idea(sc) > 0 || en_arr(sc) == 1, continue; end   % physical processing, sparse arrays
+            if f == 1, y = max(mKbe(j, :), tFl); else, y = mKsum(j, :); end
+            plot(Ksw, y, [tLs2{sc} tMk{sc}], 'Color', tCol{sc}, 'MarkerFaceColor', tMfc2{sc}, ...
+                 'LineWidth', 1.5, 'DisplayName', en_leg{sc});
+        end
+        xlabel('number of users K');
+        if f == 1
+            set(gca, 'YScale', 'log'); ylabel('BER (Cross-AP List)');
+        else
+            ylabel('sum SE [bit/s/Hz] (Cross-AP List)');
+        end
+        title(sprintf('With CAPE (solid) and without CAPE (dotted), %d dB', SNR_dB(tSi)));
+        legend('Location', 'northwest');
+    end
+
+    % ---- T15: angle acquisition of the channel estimator (near-field links) ----
+    figure('Name', 'T15 Angle acquisition of the channel estimator', 'Position', [30 30 1150 470]);
+    for f = 1:2
+        subplot(1, 2, f); hold on; box on; grid on;
+        for sc = find(en_arr > 1)
+            if f == 1, y = 100 * squeeze(mHT(sc, 1, :)); else, y = squeeze(mRM(sc, 1, :)); end
+            plot(SNR_dB, y, [tLs2{sc} tMk{sc}], 'Color', tCol{sc}, 'MarkerFaceColor', tMfc2{sc}, ...
+                 'LineWidth', 1.4, 'DisplayName', en_leg{sc});
+        end
+        xlabel(tXl);
+        if f == 1
+            ylabel('true-lobe hit rate [%]'); ylim([0 100]);
+            title(sprintf('Estimated angle within %.4f of the true sin(\\theta)', tolS));
+            legend('Location', 'southeast');
+        else
+            set(gca, 'YScale', 'log'); ylabel('angle RMSE of the hits [sin(\theta)]');
+            title('Angle accuracy when the true lobe is found');
+        end
+    end
+
+    % ---- T16: paired effect of co-array processing on NMSE, localisation and angle ----
+    %  Ratio Y/X per drop (co-array / physical, same antennas, same drop):
+    %  geometric mean over the drops +- one standard error. <0 % = co-array better.
+    figure('Name', 'T16 Effect of co-array processing on NMSE, localisation and angle (paired)', ...
+           'Position', [30 30 1150 800]);
+    tQ  = {EN_nmse, EN_nmse, EN_loc};
+    tPp = {tPair, tPairL, tPair};
+    tT16 = {'NMSE change with co-array, with CAPE', 'NMSE change with co-array, without CAPE', ...
+            'localisation-error change with co-array (CAPE)'};
+    for f = 1:3
+        subplot(2, 2, f); hold on; box on; grid on;
+        plot(SNR_dB, zeros(size(SNR_dB)), 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
+        for pr = 1:2
+            a = tPp{f}(pr, 1);  b = tPp{f}(pr, 2);
+            X = reshape(tQ{f}(a, 1, :, :), tNsnr, tSet);  Y = reshape(tQ{f}(b, 1, :, :), tNsnr, tSet);
+            mu = nan(tNsnr, 1);  lo = mu;  hi = mu;
+            for si = 1:tNsnr
+                ok = isfinite(X(si, :)) & isfinite(Y(si, :)) & X(si, :) > 0 & Y(si, :) > 0;
+                if nnz(ok) < 2, continue; end
+                r = log(Y(si, ok) ./ X(si, ok));  m = mean(r);  s = std(r) / sqrt(nnz(ok));
+                mu(si) = 100 * (exp(m) - 1);  lo(si) = 100 * (exp(m - s) - 1);  hi(si) = 100 * (exp(m + s) - 1);
+            end
+            hEb = errorbar(SNR_dB, mu, mu - lo, hi - mu, ['-' tMk{a}]);
+            set(hEb, 'Color', tCol{a}, 'MarkerFaceColor', tCol{a}, 'LineWidth', 1.4, 'DisplayName', tPairNm{pr});
+        end
+        xlabel(tXl); ylabel('change [%]  (<0 = co-array better)'); title(tT16{f}); legend('Location', 'best');
+    end
+    subplot(2, 2, 4); hold on; box on; grid on;
+    plot(SNR_dB, zeros(size(SNR_dB)), 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
+    tPP = [tPair; tPairL];  tPN = {'Nested, CAPE', 'Coprime, CAPE', 'Nested, no CAPE', 'Coprime, no CAPE'};
+    for pr = 1:4
+        a = tPP(pr, 1);  b = tPP(pr, 2);
+        X = reshape(EN_hit(a, 1, :, :), tNsnr, tSet);  Y = reshape(EN_hit(b, 1, :, :), tNsnr, tSet);
+        Dd = 100 * (Y - X);  mu = nan(tNsnr, 1);  se = mu;
+        for si = 1:tNsnr
+            v = Dd(si, isfinite(Dd(si, :)));
+            if numel(v) >= 2, mu(si) = mean(v);  se(si) = std(v) / sqrt(numel(v)); end
+        end
+        hEb = errorbar(SNR_dB, mu, se, [tLs2{a}(1:min(end, 2)) tMk{a}]);
+        set(hEb, 'Color', tCol{a}, 'MarkerFaceColor', tMfc2{a}, 'LineWidth', 1.4, 'DisplayName', tPN{pr});
+    end
+    xlabel(tXl); ylabel('hit-rate change [percentage points]  (>0 = co-array better)');
+    title('true-lobe angle hit rate change with co-array'); legend('Location', 'best');
+
+    % ---- T17: classic DOA test: physical MUSIC vs co-array MUSIC on the same antennas ----
+    figure('Name', 'T17 Resolvable sources and angle accuracy: physical vs co-array MUSIC', ...
+           'Position', [30 30 1500 470]);
+    for f = 1:3
+        subplot(1, 3, f); hold on; box on; grid on;
+        for a = 1:4
+            if f == 1, yP = 100 * DOA_fP(a, :);  yC = 100 * DOA_fC(a, :);  x = DOA_D;
+            elseif f == 2, yP = 100 * DOA_pP(a, :);  yC = 100 * DOA_pC(a, :);  x = DOA_D;
+            else, yP = DOA_rP(a, :);  yC = DOA_rC(a, :);  x = DOA_snr;
+            end
+            plot(x, yP, ['-' tMk{tArrSch(a)}], 'Color', tArrCol{a}, 'MarkerFaceColor', tArrCol{a}, ...
+                 'LineWidth', 1.4, 'DisplayName', [tArrNm{a} ', physical MUSIC']);
+            plot(x, yC, ['--' tMk{tArrSch(a)}], 'Color', tArrCol{a}, 'MarkerFaceColor', 'none', ...
+                 'LineWidth', 1.4, 'DisplayName', sprintf('%s, co-array MUSIC (max %d)', tArrNm{a}, DOA_lim(a, 2)));
+        end
+        if f == 1
+            xlabel('number of sources (users) D'); ylabel('sources found [%]'); ylim([0 105]);
+            title(sprintf('Sources found, %d dB, %d snapshots', DOA_snrD, DOA_T));
+            legend('Location', 'southwest');
+        elseif f == 2
+            xlabel('number of sources (users) D'); ylabel('all D sources resolved [%]'); ylim([0 105]);
+            title(sprintf('Probability that ALL sources are resolved (physical max %d)', DOA_lim(1, 1)));
+        else
+            xlabel('SNR per antenna per source [dB]'); ylabel('angle RMSE [sin(\theta)]'); set(gca, 'YScale', 'log');
+            title(sprintf('Angle RMSE, D = %d sources', DOA_D0));
+        end
     end
 
     % ---- console summary at 10 dB ----
     for ca = 1:tNc
-        fprintf('\n=== [CODE T] %s, at %d dB (mean +- std. error over %d setups) ===\n', ...
+        fprintf('\n=== [CODE T] %s, at %d dB (mean +- std. error over %d drops) ===\n', ...
                 en_caseName{ca}, SNR_dB(tSi), tSet);
-        fprintf('%-28s %10s %22s %18s %10s\n', 'scheme', 'NMSE', 'BER (Cross-AP List)', 'sum SE', 'loc [m]');
+        fprintf('%-30s %10s %22s %18s %9s %10s\n', 'scheme', 'NMSE', 'BER (Cross-AP List)', 'sum SE', 'hit [%]', 'loc [m]');
         for sc = 1:tNs
             be = reshape(EN_be(tDet, sc, ca, tSi, :), [], 1);
             su = reshape(EN_sum(tDet, sc, ca, tSi, :), [], 1);
-            fprintf('%-28s %10.2e %11.3e +- %8.1e %8.2f +- %5.2f %10.3f\n', en_names{sc}, mNM(sc, ca, tSi), ...
-                    mean(be), std(be) / sqrt(tSet), mean(su), std(su) / sqrt(tSet), mLC(sc, ca, tSi));
+            fprintf('%-30s %10.2e %11.3e +- %8.1e %8.2f +- %5.2f %9.1f %10.3f\n', en_names{sc}, mNM(sc, ca, tSi), ...
+                    mean(be), std(be) / sqrt(tSet), mean(su), std(su) / sqrt(tSet), 100 * mHT(sc, ca, tSi), mLC(sc, ca, tSi));
+        end
+        fprintf('  CAPE gain at %d dB, BER(no CAPE)/BER(CAPE) for [Linear, Hard SIC, List SIC, Cross-AP List]:\n', SNR_dB(tSi));
+        for j = 1:6
+            fprintf('    %-26s %s\n', tXn{j}, sprintf('%7.2f ', tGB(:, j)));
         end
         for pr = 1:2
             a = tPair(pr, 1);  b = tPair(pr, 2);
             Dd = EN_be(tDet, b, ca, :, :) - EN_be(tDet, a, ca, :, :);
-            fprintf('  %s: co-array vs physical processing identical in %d%% of (SNR, setup) points\n', ...
+            fprintf('  %s: co-array vs physical processing (CAPE) identical in %d%% of (SNR, drop) points\n', ...
                     tPairNm{pr}, round(100 * mean(Dd(:) == 0)));
         end
         fprintf('  Cross-AP List BER vs SNR (all schemes):\n');
         for sc = 1:tNs
-            fprintf('    %-28s', en_names{sc});  fprintf(' %9.2e', squeeze(mBE(tDet, sc, ca, :)));  fprintf('\n');
+            fprintf('    %-30s', en_names{sc});  fprintf(' %9.2e', squeeze(mBE(tDet, sc, ca, :)));  fprintf('\n');
         end
+    end
+    fprintf('\n  DOA test, sources found [%%] at D = %s:\n', mat2str(DOA_D));
+    for a = 1:4
+        fprintf('    %-26s physical %s\n', tArrNm{a}, sprintf('%4.0f', 100 * DOA_fP(a, :)));
+        fprintf('    %-26s co-array %s\n', '', sprintf('%4.0f', 100 * DOA_fC(a, :)));
     end
 end
 
-function [Hhat, C, Hpre, Cpre] = csi_acquire(H, R, NFm, hdet, beta, pilot, tau, p, ...
+function [Hhat, C, Hpre, Cpre, aErr] = csi_acquire(H, R, NFm, hdet, beta, pilot, tau, p, ...
                                              N, L, K, nReal, genie, nfOvr, eps_NF, PD, FG)
 % H     : LN x nReal x K TRUE channels. Used ONLY to synthesise the received
 %         pilot signal yp, as nature would. Never passed to an estimator.
@@ -1009,6 +1283,13 @@ function [Hhat, C, Hpre, Cpre] = csi_acquire(H, R, NFm, hdet, beta, pilot, tau, 
     Np = sqrt(0.5) * (randn(N, nReal, L, tau) + 1j * randn(N, nReal, L, tau));
     Hhat = zeros(LN, nReal, K);
     C = zeros(N, N, L, K);
+    aErr = nan(L, K, nReal);                   % [CODE T] angle error of the estimate (scoring only)
+    hasFG = nargin >= 17 && ~isempty(FG);
+    hasTrue = hasFG && isfield(FG, 'sTrue');
+    caAng = cell(L, 1);                        % [CODE T] co-array angles seed the local estimator
+    if hasFG && ~genie && isfield(FG, 'useCA') && FG.useCA && ~isempty(FG.CA)
+        caAng = coarray_pilot_angles(H, p, N, L, K, tau, FG);
+    end
     for l = 1:L
         idx = (l - 1) * N + 1:l * N;
         for t = 1:tau
@@ -1033,9 +1314,13 @@ function [Hhat, C, Hpre, Cpre] = csi_acquire(H, R, NFm, hdet, beta, pilot, tau, 
                     % de-spread: z = h + w,  w ~ CN(0, sw2*I),  sw2 = 1/(p*tau)
                     z   = yp / (sqrt(p) * tau);
                     sw2 = 1 / (p * tau);
-                    [hh, se2] = pdomp_estimate(z, PD, beta(l, k), sw2);
+                    [hh, se2, sA] = pdomp_estimate(z, PD, beta(l, k), sw2, caAng{l});
                     Hhat(idx, :, k) = hh;
                     C(:, :, l, k) = mean(se2) * eye(N);
+                    if hasTrue
+                        dS = abs(sA - FG.sTrue(l, k));
+                        aErr(l, k, :) = reshape(min(dS, 2 - dS), 1, 1, []);
+                    end
                 else
                     Psi_t = p * tau * R(:, :, l, k) + eye(N);
                     RPsi = R(:, :, l, k) / Psi_t;
@@ -1104,7 +1389,7 @@ function B = polar_atoms(pos, s, q, lambda)
     B  = B ./ sqrt(sum(abs(B) .^ 2, 1));
 end
 
-function [hh, se2] = pdomp_estimate(z, PD, beta_lk, sw2)
+function [hh, se2, sAng] = pdomp_estimate(z, PD, beta_lk, sw2, sx)
 % Polar-domain OMP with gridless refinement (P-SOMP / P-SIGW family,
 % Cui & Dai 2022) applied to z = h + w, one column per realization.
 % Uses only: the observation z, the known noise variance sw2, the dictionary,
@@ -1120,9 +1405,13 @@ function [hh, se2] = pdomp_estimate(z, PD, beta_lk, sw2)
 %    makes the LSFD matrix singular), and the error variance is the
 %    large-scale prior beta_lk (the receiver knows nothing more).
 % se2 : per-element error variance computed from the residual only.
+% [CODE T] sx (optional): extra start angles for the FIRST atom (co-array
+% MUSIC angles, range by a 1-D search). sAng: angle of the first atom.
+    if nargin < 5, sx = []; end
     [N, M] = size(z);
     hh  = zeros(N, M);
     se2 = zeros(1, M);
+    sAng = nan(1, M);
     gam = log(size(PD.W, 2)) + 0.58 + 3;
     Cz  = PD.W' * z;
     for m = 1:M
@@ -1138,13 +1427,27 @@ function [hh, se2] = pdomp_estimate(z, PD, beta_lk, sw2)
             [~, ordc] = sort(cc, 'descend');
             bBest = [];
             mBest = -inf;
+            sBest = NaN;
             for st = 1:min(PD.nstart, numel(ordc))
                 j = ordc(st);
-                [b, mg] = refine_atom(r, PD.s(j), PD.q(j), PD);
+                [b, mg, sb] = refine_atom(r, PD.s(j), PD.q(j), PD);
                 if mg > mBest
                     mBest = mg;
                     bBest = b;
+                    sBest = sb;
                 end
+            end
+            if it == 1
+                for jj = 1:numel(sx)                       % [CODE T] co-array seeds
+                    q0 = coarray_range_search(r, sx(jj), PD, PD.nRng);
+                    [b, mg, sb] = refine_atom(r, sx(jj), q0, PD);
+                    if mg > mBest
+                        mBest = mg;
+                        bBest = b;
+                        sBest = sb;
+                    end
+                end
+                sAng(m) = sBest;
             end
             if mBest ^ 2 < gam * sw2
                 if it == 1
@@ -1729,7 +2032,7 @@ function [berU, nmseU, bits_pu, eng_pu, etaXap] = metrics_case(Hhat, Htrue, C, s
     cnt_stg = 0;
     cnt_shadXap = 0;
     Mm = min(M, nC);
-    chunk = 256;
+    chunk = 64;    % symbol block of the list detector (memory only; results do not change)
     for variant = 1:2
         useX = (variant == 2);
         BEST = zeros(K, nSym);
@@ -2400,7 +2703,7 @@ end
 %% ====================================================================
 %  [CODE D] CROSS-AP POSITION-FUSED CHANNEL ESTIMATION (CAPE)
 %% ====================================================================
-function [Hhat, C, xhat, nfus] = csi_acquire_cape(H, R, NFm, beta, tau, p, N, L, K, nReal, PD, FG)
+function [Hhat, C, xhat, nfus, aErr] = csi_acquire_cape(H, R, NFm, beta, tau, p, N, L, K, nReal, PD, FG)
 % Cross-AP position-domain estimation of the near-field (NF) links.
 % A user has ONE physical position; the NF channel of every AP is a known
 % function of it (NUSW model). The CPU therefore
@@ -2431,6 +2734,8 @@ function [Hhat, C, xhat, nfus] = csi_acquire_cape(H, R, NFm, beta, tau, p, N, L,
     C = zeros(N, N, L, K);
     xhat = nan(K, nReal);
     nfus = zeros(K, 1);                        % APs whose pilots were fused (pilot fronthaul)
+    aErr = nan(L, K, nReal);                   % [CODE T] angle error of the estimate (scoring only)
+    hasTrue = isfield(FG, 'sTrue');
     sw2 = 1 / (p * tau);
     % [CODE F] per-AP co-array spectra from the RAW pilot snapshots (all K users,
     % orthogonal pilots). Computed ONCE per AP and reused for all users.
@@ -2487,6 +2792,7 @@ function [Hhat, C, xhat, nfus] = csi_acquire_cape(H, R, NFm, beta, tau, p, N, L,
         for m = 1:nReal
             % ---- 0. local multi-start estimate of every NF link (as the per-AP OMP) ----
             bLoc = zeros(N, L);  mLoc = zeros(L, 1);  sLoc = zeros(L, FG.J);  qLoc = zeros(L, FG.J);
+            jLoc = ones(L, 1);
             for l = nf(:)'
                 zl = Z(:, m, l);
                 cc = abs(PD.W' * zl);
@@ -2496,6 +2802,7 @@ function [Hhat, C, xhat, nfus] = csi_acquire_cape(H, R, NFm, beta, tau, p, N, L,
                     if mj > mLoc(l)
                         mLoc(l) = mj;
                         bLoc(:, l) = bj;
+                        jLoc(l) = j;
                     end
                 end
             end
@@ -2603,11 +2910,16 @@ function [Hhat, C, xhat, nfus] = csi_acquire_cape(H, R, NFm, beta, tau, p, N, L,
             for l = nf(:)'
                 idx = (l - 1) * N + 1:l * N;
                 zl = Z(:, m, l);
-                [b, mf] = refine_atom(zl, sx(l), 1 / d3x(l), PDw);        % fused lobe, local precision
+                [b, mf, sSel] = refine_atom(zl, sx(l), 1 / d3x(l), PDw);  % fused lobe, local precision
                 sameLobe = abs(bLoc(:, l)' * b) >= FG.consist;
                 clearWin = mLoc(l) ^ 2 - mf ^ 2 > gamL * sw2;               % local fit better beyond the noise level
                 if (sameLobe && mLoc(l) > mf) || clearWin                  % consistency / likelihood gate
                     b = bLoc(:, l);
+                    sSel = sLoc(l, jLoc(l));
+                end
+                if hasTrue
+                    dS = abs(sSel - FG.sTrue(l, k));
+                    aErr(l, k, m) = min(dS, 2 - dS);
                 end
                 c = b' * zl;
                 g = N * beta(l, k) / (N * beta(l, k) + sw2);
@@ -2878,17 +3190,25 @@ function O = eval_scheme(ST, bet, useCape, PD, FG, p, EP, wantRef, UEm, seed)
     O.loc = [];
     O.nfus = 0;
     if useCape
-        [Hh, Cs, xh, nfus] = csi_acquire_cape(Ht, ST.R2, ST.NF, bet, K, p, Na, L, K, EP.nReal, PD, FG);
+        [Hh, Cs, xh, nfus, aErr] = csi_acquire_cape(Ht, ST.R2, ST.NF, bet, K, p, Na, L, K, EP.nReal, PD, FG);
         O.nfus = mean(nfus);
         dx = abs(real(xh) - real(UEm(:)));  dx = min(dx, FG.sL - dx);     % torus distance
         dy = abs(imag(xh) - imag(UEm(:)));  dy = min(dy, FG.sL - dy);
         e = sqrt(dx.^2 + dy.^2);
         O.loc = e(isfinite(e));
     else
-        [Hh, Cs] = csi_acquire(Ht, ST.R2, ST.NF, ST.hD, bet, (1:K)', K, p, ...
-                               Na, L, K, EP.nReal, false, false, EP.eps_NF, PD);
+        FGl = FG;  FGl.on = false;              % [CODE T] local estimation (+ co-array seeds)
+        [Hh, Cs, ~, ~, aErr] = csi_acquire(Ht, ST.R2, ST.NF, ST.hD, bet, (1:K)', K, p, ...
+                               Na, L, K, EP.nReal, false, false, EP.eps_NF, PD, FGl);
     end
     O.time = toc(tE);
+    a = aErr(isfinite(aErr));                  % [CODE T] true-lobe hit rate of the estimator
+    O.hit = NaN;  O.rmse = NaN;
+    if ~isempty(a)
+        hit = a < EP.tolS;
+        O.hit = mean(hit);
+        if any(hit), O.rmse = sqrt(mean(a(hit) .^ 2)); end
+    end
     O.nmse = sum(abs(Ht(:) - Hh(:)).^2) / sum(abs(Ht(:)).^2);
     Drt = cluster_rate_rule(ST.R2, Cs, p, ST.Dcn);
     O.sz = mean(sum(Drt, 1));
@@ -2939,8 +3259,10 @@ function [O, nf] = run_task(D, G, PD, CA, CAs, idea, useCape, Kc, p, seed, CF)
     FG = cape_cfg(true, D.APp, D.APw, CF.sL, CF.hD, CF.nAP, CF.nCand, CF.J, CF.step0, CF.nIter, CF.consist);
     FG.useCA = (idea > 0);  FG.co_idea = idea;  FG.CA = CA;  FG.CAs = CAs;
     FG.nAng = CF.nAng;  FG.nRng = CF.nRng;  FG.nPk = max(CF.nPeak, ceil(Kc / 2));  FG.nSubMax = CF.nSubMax;
+    FG.sTrue = D.sE;                          % [CODE T] true angles: used ONLY to score the angle hit rate
+    PD.nRng = CF.nRng;
     EP = struct('nReal', CF.nReal, 'nSym', CF.nSym, 'M', CF.M, 'dth', CF.dth, 'maxBr', CF.maxBr, ...
-                'mod', CF.mod, 'prelog', 1 - Kc / CF.tau_c, 'eps_NF', CF.eps_NF);
+                'mod', CF.mod, 'prelog', 1 - Kc / CF.tau_c, 'eps_NF', CF.eps_NF, 'tolS', CF.tolS);
     O = eval_scheme(ST, D.bet, useCape, PD, FG, p, EP, false, D.UEm, seed);
 end
 
@@ -2952,5 +3274,99 @@ function nW = n_workers()
         if isempty(pl), pl = gcp; end
         nW = max(1, pl.NumWorkers);
     catch
+    end
+end
+
+
+%% ====================================================================
+%  [CODE T] CO-ARRAY ANGLES FOR THE LOCAL ESTIMATOR AND THE DOA TEST
+%% ====================================================================
+function caAng = coarray_pilot_angles(H, p, N, L, K, tau, FG)
+% Per-AP difference-co-array MUSIC angles from the raw pilot snapshots, with
+% the SAME side random stream and the same steps as csi_acquire_cape, so the
+% local and the CAPE variant of a co-array scheme see identical angles.
+    caAng = cell(L, 1);
+    Phi = exp(-1j * 2 * pi * (0:tau - 1)' * (0:tau - 1) / tau) / sqrt(tau);
+    useSide = isfield(FG, 'caSeed');
+    if useSide, rsMain = rng; rng(FG.caSeed); end
+    for l = 1:L
+        idx = (l - 1) * N + 1:l * N;
+        Hl = reshape(H(idx, 1, :), [N, K]);
+        Yl = sqrt(p) * Hl * Phi(1:K, :) + sqrt(0.5) * (randn(N, tau) + 1j * randn(N, tau));
+        Rl = (Yl * Yl') / tau;
+        caAng{l} = coarray_music_angles(Rl, FG.CA, K, FG.nAng, FG.nPk, FG.nSubMax);
+    end
+    if useSide, rng(rsMain); end
+end
+
+function [fP, fC, pP, pC, rP, rC, lim] = doa_test(G, CA, Dlist, snrList, T, nTr, nSubMax, lambda)
+% Classic DOA test of one array: D far-field equal-power sources at random
+% angles in sin(theta) inside the unambiguous sector of the array (width
+% 2/u for a grid of u half-wavelengths, at most 1.9), with a minimum
+% separation of half the mean spacing; T snapshots. Physical MUSIC (N x N covariance, at most N - 1 sources) vs
+% difference-co-array MUSIC (spatially smoothed, at most Ns - 1 sources) on
+% the SAME snapshots. A source is found if a peak lies within half the
+% minimum separation (one-to-one matching).
+%   fP/fC : fraction of sources found, pP/pC : probability that ALL are found
+%   rP/rC : angle RMSE of the found sources [sin(theta)]
+%   lim   : [physical, co-array] maximum number of sources
+% Dlist or snrList may be a vector (the other one a scalar).
+    pos = G.pos(:);  N = numel(pos);
+    per = min(2, lambda / G.unit);  w = min(per, 1.9);
+    sg = linspace(-w / 2, w / 2, 4001);
+    Ap = exp(1j * 2 * pi * pos * sg / lambda);
+    Ns = min(CA.Nsub, nSubMax);
+    Av = exp(1j * 2 * pi * (0:Ns - 1)' * CA.d0 * sg / lambda);
+    lim = [N - 1, Ns - 1];
+    nP = max(numel(Dlist), numel(snrList));
+    fP = zeros(1, nP);  fC = fP;  pP = fP;  pC = fP;  rP = fP;  rC = fP;
+    for ip = 1:nP
+        D = Dlist(min(ip, numel(Dlist)));  snr = snrList(min(ip, numel(snrList)));
+        Lw = 0.95 * w;  dmin = 0.5 * Lw / D;  tol = dmin / 2;
+        nFP = 0; nFC = 0; aP = 0; aC = 0; eP = 0; eC = 0;
+        for tr = 1:nTr
+            s = -Lw / 2 + dmin * (0:D - 1) + sort(rand(1, D)) * (Lw - (D - 1) * dmin);
+            A = exp(1j * 2 * pi * pos * s / lambda);
+            Y = sqrt(snr / 2) * A * (randn(D, T) + 1j * randn(D, T)) + sqrt(0.5) * (randn(N, T) + 1j * randn(N, T));
+            R = (Y * Y') / T;
+            % physical MUSIC
+            [U, Dg] = eig((R + R') / 2);  [~, o] = sort(real(diag(Dg)), 'descend');  U = U(:, o);
+            En = U(:, min(D, N - 1) + 1:end);
+            Pm = 1 ./ max(sum(abs(En' * Ap) .^ 2, 1), eps);
+            [k1, e1] = match_peaks(s, coarray_peaks(sg, Pm, D), tol, per);
+            % co-array MUSIC (same snapshots)
+            z = R(:);  zu = accumarray(CA.ic, z) ./ max(accumarray(CA.ic, ones(size(z))), 1);
+            zv = zu(CA.loc);  nWin = CA.Nv - Ns + 1;  Rss = zeros(Ns);
+            for i = 1:nWin
+                zi = zv(i:i + Ns - 1);  Rss = Rss + zi * zi';
+            end
+            [U, Dg] = eig((Rss + Rss') / 2);  [~, o] = sort(real(diag(Dg)), 'descend');  U = U(:, o);
+            En = U(:, min(D, Ns - 1) + 1:end);
+            Pc = 1 ./ max(sum(abs(En' * Av) .^ 2, 1), eps);
+            [k2, e2] = match_peaks(s, coarray_peaks(sg, Pc, D), tol, per);
+            nFP = nFP + k1;  nFC = nFC + k2;  aP = aP + (k1 == D);  aC = aC + (k2 == D);
+            eP = eP + e1;  eC = eC + e2;
+        end
+        fP(ip) = nFP / (D * nTr);  fC(ip) = nFC / (D * nTr);
+        pP(ip) = aP / nTr;  pC(ip) = aC / nTr;
+        rP(ip) = sqrt(eP / max(nFP, 1));  rC(ip) = sqrt(eC / max(nFC, 1));
+        if nFP == 0, rP(ip) = NaN; end
+        if nFC == 0, rC(ip) = NaN; end
+    end
+end
+
+function [nF, e2] = match_peaks(s, pk, tol, per)
+% Greedy one-to-one matching of true angles s and peaks pk (periodic distance
+% with period per). Returns the number matched within tol and the sum of
+% their squared errors.
+    nF = 0;  e2 = 0;
+    if isempty(pk), return; end
+    Dm = abs(mod(s(:) - pk(:).' + per / 2, per) - per / 2);
+    while true
+        [m, ix] = min(Dm(:));
+        if isempty(m) || ~isfinite(m) || m >= tol, break; end
+        [r, c] = ind2sub(size(Dm), ix);
+        nF = nF + 1;  e2 = e2 + m ^ 2;
+        Dm(r, :) = inf;  Dm(:, c) = inf;
     end
 end

@@ -25,7 +25,7 @@ def cut(text, start, end, new):
 
 
 HEADER = r"""clear; close all; clc;
-delete(gcp('nocreate'));   % close any parallel pool left open by a previous run (frees memory)
+try, delete(gcp('nocreate')); catch, end   % close any parallel pool left open by a previous run (frees memory)
 %% ====================================================================
 %  CODE U : MOVABLE (SLIDING-MIRROR) SPARSE ARRAY vs STATIC SPARSE ARRAYS
 %           crowded near-field / hybrid-field cell-free uplink (from Code T)
