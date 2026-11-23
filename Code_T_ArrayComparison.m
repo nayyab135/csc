@@ -3764,6 +3764,11 @@ function xh = local_triangulate(sE, qE, NFm, beta, FG)
 % averages it with the nearest points of the other APs. Same APs, pilots and
 % candidate lobes as CAPE: only DECISIONS are fused (geometry), not the pilot
 % likelihoods, and there is no refinement on the pilots.
+% Check (Octave, 20 drops): with the true angle among every AP's candidates
+% the median error is 1.5-2.3 m; if the true lobe is present at only 80% /
+% 50% / 30% of the APs (grating-lobe aliases otherwise) it grows to
+% 64-78 / 92-122 / 101-131 m. Hard decisions break down under grating-lobe
+% ambiguity; this is what the likelihood fusion of CAPE avoids.
     [~, K, M, nJ] = size(sE);
     xh = nan(K, M);
     sL = FG.sL;  rr = 20:6:260;
