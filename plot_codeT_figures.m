@@ -270,7 +270,7 @@ for j = 1:6
     tXG(2, j) = max(mBE(3, sc, 1, tSi), tFl) / max(mBE(4, sc, 1, tSi), tFl);   % List SIC / Cross-AP, CAPE
 end
 tXn = {'ULA \lambda/2', 'ULA wide', 'Nested', 'Nest.+co', 'Coprime', 'Copr.+co'};
-figure('Name', 'T13 CAPE gain per detector and Cross-AP List gain (10 dB)', 'Position', [30 30 1500 470]);
+figure('Name', sprintf('T13 CAPE gain per detector and Cross-AP List gain (%d dB)', SNR_dB(tSi)), 'Position', [30 30 1500 470]);
 subplot(1, 3, 1); hb = bar(tGB.'); grid on; box on; hold on;
 plot([0.4 6.6], [1 1], 'k-', 'HandleVisibility', 'off');
 set(gca, 'YScale', 'log', 'XTick', 1:6, 'XTickLabel', tXn);
