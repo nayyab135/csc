@@ -3,10 +3,16 @@
 %  Plain markers (no error bars), SNR 0-20 dB, at most two panels per figure.
 %  Filled marker = with CAPE, open marker / dotted line = without CAPE.
 %  Uses the workspace variables after Code_U_v2.m, or loads codeU_v2_results.mat.
+%  paper_set = true (default): only the five figures for the paper:
+%    Fig 1 true lobe and position (with / without CAPE), Fig 2 movable vs nested
+%    (BER, NMSE), Fig 3 BER vs SNR and vs number of users, Fig 4 users within
+%    1 m and the CAPE gain of the movable array, Fig 5 aperture and grating lobes.
+%  paper_set = false: all figures P1-P12. Set it before running this script.
 %  It never clears the workspace. No local functions.
 if ~exist('EN_be', 'var') || ~exist('EN_loc1', 'var') || ~exist('bs_kind', 'var')
     load('codeU_v2_results.mat');
 end
+if ~exist('paper_set', 'var'), paper_set = true; end
 pN = find(strcmp(bs_name, 'Nested'), 1);                    % base scheme: nested (physical)
 pM = find(strcmp(bs_name, 'Movable (sparse half)'), 1);     % base scheme: movable, sparse half
 pS = @(b, cp) find(en_base == b & en_cape == cp, 1);        % scheme index (cp = 1: with CAPE)
@@ -34,25 +40,29 @@ pCfg = {pN, 1, cB,   '-',  's', cB,     'Nested, with CAPE'; ...
         pM, 1, cR,   '-',  'o', cR,     'Movable, with CAPE'; ...
         pM, 0, cDBr, ':',  'o', 'none', 'Movable, without CAPE'};
 
-% ---------------- P1: each AP alone (no CAPE): true lobe found, and its accuracy ----------------
-figure('Name', 'P1 Each AP alone: true lobe found', 'Position', [30 30 1150 470]);
-for f = 1:2
-    subplot(1, 2, f); hold on;
-    for q = [2 4]
-        s = pS(pCfg{q, 1}, 0);
-        if f == 1, y = 100 * pMean(pRow(EN_hit, s)); else, y = pRms(pRow(EN_rmse, s)); end
-        pLine(pX, y(pI), pCfg{q, 3:7});
-    end
-    pAx(); xlabel(pXl); title('Each AP alone: true lobe found');
-    if f == 1
-        ylabel('True-lobe hit rate (%)'); ylim([0 100]); legend('Location', 'southeast');
-    else
-        set(gca, 'YScale', 'log'); ylabel('Angle RMSE (sin\theta)');
+if ~paper_set
+    % ---------------- P1: each AP alone (no CAPE): true lobe found, and its accuracy ----------------
+    figure('Name', 'P1 Each AP alone: true lobe found', 'Position', [30 30 1150 470]);
+    for f = 1:2
+        subplot(1, 2, f); hold on;
+        for q = [2 4]
+            s = pS(pCfg{q, 1}, 0);
+            if f == 1, y = 100 * pMean(pRow(EN_hit, s)); else, y = pRms(pRow(EN_rmse, s)); end
+            pLine(pX, y(pI), pCfg{q, 3:7});
+        end
+        pAx(); xlabel(pXl); title('Each AP alone: true lobe found');
+        if f == 1
+            ylabel('True-lobe hit rate (%)'); ylim([0 100]); legend('Location', 'southeast');
+        else
+            set(gca, 'YScale', 'log'); ylabel('Angle RMSE (sin\theta)');
+        end
     end
 end
 
 % ---------------- P2: with vs without CAPE: true lobe found, and position error ----------------
-figure('Name', 'P2 True lobe and position: with vs without CAPE', 'Position', [30 30 1150 470]);
+if paper_set, pNm = 'Fig 1 True lobe and position: with vs without CAPE';
+else, pNm = 'P2 True lobe and position: with vs without CAPE'; end
+figure('Name', pNm, 'Position', [30 30 1150 470]);
 for f = 1:2
     subplot(1, 2, f); hold on;
     for q = 1:4
@@ -69,19 +79,22 @@ for f = 1:2
     end
 end
 
-% ---------------- P3: users located within 1 m ----------------
-figure('Name', 'P3 Users located within 1 m', 'Position', [30 30 620 470]);
-hold on;
-for q = 1:4
-    s = pS(pCfg{q, 1}, pCfg{q, 2});  y = 100 * pMean(pRow(EN_loc1, s));
-    pLine(pX, y(pI), pCfg{q, 3:7});
+if ~paper_set
+    % ---------------- P3: users located within 1 m ----------------
+    figure('Name', 'P3 Users located within 1 m', 'Position', [30 30 620 470]);
+    hold on;
+    for q = 1:4
+        s = pS(pCfg{q, 1}, pCfg{q, 2});  y = 100 * pMean(pRow(EN_loc1, s));
+        pLine(pX, y(pI), pCfg{q, 3:7});
+    end
+    pAx(); xlabel(pXl); ylabel('Users within 1 m (%)'); ylim([0 100]);
+    title('Users located within 1 m'); legend('Location', 'northwest');
 end
-pAx(); xlabel(pXl); ylabel('Users within 1 m (%)'); ylim([0 100]);
-title('Users located within 1 m'); legend('Location', 'northwest');
 
 % ---------------- P4 / P5: movable vs nested, paired (same drops) ----------------
 pPr = {1, cR, '-', 'o', cR, 'with CAPE'; 0, cDBr, ':', 's', 'none', 'without CAPE'};
-figure('Name', 'P4 Movable vs nested: BER and NMSE', 'Position', [30 30 1150 470]);
+if paper_set, pNm = 'Fig 2 Movable vs nested: BER and NMSE'; else, pNm = 'P4 Movable vs nested: BER and NMSE'; end
+figure('Name', pNm, 'Position', [30 30 1150 470]);
 for f = 1:2
     subplot(1, 2, f); hold on;
     for q = 1:2
@@ -102,95 +115,141 @@ for f = 1:2
         title('NMSE: movable vs nested (below 0: movable better)'); ylabel('NMSE change (%)');
     end
 end
-figure('Name', 'P5 Movable vs nested: true lobe and position', 'Position', [30 30 1150 470]);
-for f = 1:2
-    subplot(1, 2, f); hold on;
-    for q = 1:2
-        sA = pS(pN, pPr{q, 1});  sB = pS(pM, pPr{q, 1});
-        if f == 1
-            y = 100 * (pMean(pRow(EN_hit, sB)) - pMean(pRow(EN_hit, sA)));
-        else
-            y = pGeo(pRow(EN_loc, sA), pRow(EN_loc, sB));
+if ~paper_set
+    figure('Name', 'P5 Movable vs nested: true lobe and position', 'Position', [30 30 1150 470]);
+    for f = 1:2
+        subplot(1, 2, f); hold on;
+        for q = 1:2
+            sA = pS(pN, pPr{q, 1});  sB = pS(pM, pPr{q, 1});
+            if f == 1
+                y = 100 * (pMean(pRow(EN_hit, sB)) - pMean(pRow(EN_hit, sA)));
+            else
+                y = pGeo(pRow(EN_loc, sA), pRow(EN_loc, sB));
+            end
+            pLine(pX, y(pI), pPr{q, 2:6});
         end
-        pLine(pX, y(pI), pPr{q, 2:6});
-    end
-    pAx(); xlabel(pXl);
-    if f == 1
-        title('True-lobe hit rate: movable minus nested'); ylabel('Hit-rate gain (points)'); ylim([0 60]);
-        legend('Location', 'southeast');
-    else
-        plot([0 20], [0 0], 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
-        title('Position error: movable vs nested (below 0: movable better)'); ylabel('Position error change (%)');
-        ylim([-100 0]);
+        pAx(); xlabel(pXl);
+        if f == 1
+            title('True-lobe hit rate: movable minus nested'); ylabel('Hit-rate gain (points)'); ylim([0 60]);
+            legend('Location', 'southeast');
+        else
+            plot([0 20], [0 0], 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
+            title('Position error: movable vs nested (below 0: movable better)'); ylabel('Position error change (%)');
+            ylim([-100 0]);
+        end
     end
 end
 
-% ---------------- P6 / P7: detection (Cross-AP List, with CAPE) ----------------
 pA2 = {pN, cB, '-', 's', cB, 'Nested'; pM, cR, '-', 'o', cR, 'Movable'};
-figure('Name', 'P6 Detection: BER and reliability (with CAPE)', 'Position', [30 30 1150 470]);
-for f = 1:2
-    subplot(1, 2, f); hold on;
+if ~paper_set
+    % ---------------- P6 / P7: detection (Cross-AP List, with CAPE) ----------------
+    figure('Name', 'P6 Detection: BER and reliability (with CAPE)', 'Position', [30 30 1150 470]);
+    for f = 1:2
+        subplot(1, 2, f); hold on;
+        for q = 1:2
+            X = pBer(4, pS(pA2{q, 1}, 1));
+            if f == 1, y = mean(X, 2); else, y = 100 * mean(X <= 1e-3, 2); end
+            pLine(pX, y(pI), pA2{q, 2:6});
+        end
+        pAx(); xlabel(pXl);
+        if f == 1
+            set(gca, 'YScale', 'log'); title('BER (Cross-AP List, with CAPE)'); ylabel('BER'); legend('Location', 'southwest');
+        else
+            title('Reliability: drops with BER \leq 10^{-3}'); ylabel('Drops (%)'); ylim([0 100]);
+        end
+    end
+    [~, pI12] = min(abs(SNR_dB - 12));
+    figure('Name', 'P7 Detection: sum SE and per-drop BER (with CAPE)', 'Position', [30 30 1150 470]);
+    subplot(1, 2, 1); hold on;
     for q = 1:2
-        X = pBer(4, pS(pA2{q, 1}, 1));
-        if f == 1, y = mean(X, 2); else, y = 100 * mean(X <= 1e-3, 2); end
-        pLine(pX, y(pI), pA2{q, 2:6});
+        y = mean(pSE(pS(pA2{q, 1}, 1)), 2);  pLine(pX, y(pI), pA2{q, 2:6});
     end
-    pAx(); xlabel(pXl);
-    if f == 1
-        set(gca, 'YScale', 'log'); title('BER (Cross-AP List, with CAPE)'); ylabel('BER'); legend('Location', 'southwest');
-    else
-        title('Reliability: drops with BER \leq 10^{-3}'); ylabel('Drops (%)'); ylim([0 100]);
+    pAx(); xlabel(pXl); ylabel('Sum SE (bit/s/Hz)'); title('Sum spectral efficiency (with CAPE)'); legend('Location', 'northwest');
+    subplot(1, 2, 2); hold on;
+    for q = 1:2
+        X = pBer(4, pS(pA2{q, 1}, 1));  v = sort(max(X(pI12, :), 1e-6));
+        stairs(v, (1:pNd) / pNd, 'Color', pA2{q, 2}, 'LineWidth', 1.8, 'DisplayName', pA2{q, 6});
     end
-end
-[~, pI12] = min(abs(SNR_dB - 12));
-figure('Name', 'P7 Detection: sum SE and per-drop BER (with CAPE)', 'Position', [30 30 1150 470]);
-subplot(1, 2, 1); hold on;
-for q = 1:2
-    y = mean(pSE(pS(pA2{q, 1}, 1)), 2);  pLine(pX, y(pI), pA2{q, 2:6});
-end
-pAx(); xlabel(pXl); ylabel('Sum SE (bit/s/Hz)'); title('Sum spectral efficiency (with CAPE)'); legend('Location', 'northwest');
-subplot(1, 2, 2); hold on;
-for q = 1:2
-    X = pBer(4, pS(pA2{q, 1}, 1));  v = sort(max(X(pI12, :), 1e-6));
-    stairs(v, (1:pNd) / pNd, 'Color', pA2{q, 2}, 'LineWidth', 1.8, 'DisplayName', pA2{q, 6});
-end
-set(gca, 'FontSize', 12, 'XScale', 'log', 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on'); xlim([1e-6 1]); ylim([0 1]);
-xlabel('Per-drop BER (error-free drops at 10^{-6})'); ylabel('CDF');
-title(sprintf('Per-drop BER at %d dB (CDF over %d drops)', SNR_dB(pI12), pNd));
+    set(gca, 'FontSize', 12, 'XScale', 'log', 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on'); xlim([1e-6 1]); ylim([0 1]);
+    xlabel('Per-drop BER (error-free drops at 10^{-6})'); ylabel('CDF');
+    title(sprintf('Per-drop BER at %d dB (CDF)', SNR_dB(pI12)));
 
-% ---------------- P8: number of users (with CAPE) ----------------
-figure('Name', 'P8 Number of users (with CAPE)', 'Position', [30 30 1150 470]);
-nSK = size(EN_Kbe, 3);
-for f = 1:2
-    subplot(1, 2, f); hold on;
+    % ---------------- P8: number of users (with CAPE) ----------------
+    figure('Name', 'P8 Number of users (with CAPE)', 'Position', [30 30 1150 470]);
+    nSK = size(EN_Kbe, 3);
+    for f = 1:2
+        subplot(1, 2, f); hold on;
+        for q = 1:2
+            j = find(Ksw_sch == pS(pA2{q, 1}, 1), 1);
+            if f == 1, Q = EN_Kbe; else, Q = EN_Ksum; end
+            y = mean(reshape(Q(j, :, :), numel(Ksw), nSK), 2);
+            pLine(Ksw, y, pA2{q, 2:6});
+        end
+        set(gca, 'FontSize', 12, 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on', 'XTick', Ksw); xlabel('Number of users K');
+        if f == 1
+            set(gca, 'YScale', 'log'); ylabel('BER'); title(sprintf('BER vs number of users (%d dB)', SNR_dB(snr_ref_idx)));
+            legend('Location', 'southeast');
+        else
+            ylabel('Sum SE (bit/s/Hz)'); title(sprintf('Sum SE vs number of users (%d dB)', SNR_dB(snr_ref_idx)));
+        end
+    end
+
+    % ---------------- P9: CAPE gain for List SIC and for the proposed Cross-AP List ----------------
+    figure('Name', 'P9 CAPE gain: List SIC vs Cross-AP List', 'Position', [30 30 1150 470]);
+    pTt = {'Nested: BER without CAPE / with CAPE', 'Movable: BER without CAPE / with CAPE'};
+    pBb = [pN pM];
+    for f = 1:2
+        subplot(1, 2, f); hold on;
+        plot([0 20], [1 1], 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
+        y3 = mean(pBer(3, pS(pBb(f), 0)), 2) ./ mean(pBer(3, pS(pBb(f), 1)), 2);
+        y4 = mean(pBer(4, pS(pBb(f), 0)), 2) ./ mean(pBer(4, pS(pBb(f), 1)), 2);
+        pLine(pX, y3(pI), cK, ':', 's', 'none', 'List SIC');
+        pLine(pX, y4(pI), cR, '-', 'o', cR, 'Cross-AP List (proposed)');
+        pAx(); xlabel(pXl); ylabel('BER ratio'); ylim([0.95 1.2]);
+        title(pTt{f});  if f == 1, legend('Location', 'northwest'); end
+    end
+end
+
+if paper_set
+    % ---------------- Fig 3: BER vs SNR and BER vs number of users (with CAPE) ----------------
+    figure('Name', 'Fig 3 BER vs SNR and vs number of users (with CAPE)', 'Position', [30 30 1150 470]);
+    subplot(1, 2, 1); hold on;
+    for q = 1:2
+        y = mean(pBer(4, pS(pA2{q, 1}, 1)), 2);  pLine(pX, y(pI), pA2{q, 2:6});
+    end
+    pAx(); xlabel(pXl); set(gca, 'YScale', 'log'); ylabel('BER');
+    title('BER (Cross-AP List, with CAPE)'); legend('Location', 'southwest');
+    subplot(1, 2, 2); hold on;
+    nSK = size(EN_Kbe, 3);
     for q = 1:2
         j = find(Ksw_sch == pS(pA2{q, 1}, 1), 1);
-        if f == 1, Q = EN_Kbe; else, Q = EN_Ksum; end
-        y = mean(reshape(Q(j, :, :), numel(Ksw), nSK), 2);
-        pLine(Ksw, y, pA2{q, 2:6});
+        y = mean(reshape(EN_Kbe(j, :, :), numel(Ksw), nSK), 2);  pLine(Ksw, y, pA2{q, 2:6});
     end
-    set(gca, 'FontSize', 12, 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on', 'XTick', Ksw); xlabel('Number of users K');
-    if f == 1
-        set(gca, 'YScale', 'log'); ylabel('BER'); title(sprintf('BER vs number of users (%d dB)', SNR_dB(snr_ref_idx)));
-        legend('Location', 'southeast');
-    else
-        ylabel('Sum SE (bit/s/Hz)'); title(sprintf('Sum SE vs number of users (%d dB)', SNR_dB(snr_ref_idx)));
-    end
-end
+    set(gca, 'FontSize', 12, 'Box', 'on', 'XGrid', 'on', 'YGrid', 'on', 'XTick', Ksw, 'YScale', 'log');
+    xlabel('Number of users K'); ylabel('BER');
+    title(sprintf('BER vs number of users (%d dB)', SNR_dB(snr_ref_idx)));
 
-% ---------------- P9: CAPE gain for List SIC and for the proposed Cross-AP List ----------------
-figure('Name', 'P9 CAPE gain: List SIC vs Cross-AP List', 'Position', [30 30 1150 470]);
-pTt = {'Nested: BER without CAPE / with CAPE', 'Movable: BER without CAPE / with CAPE'};
-pBb = [pN pM];
-for f = 1:2
-    subplot(1, 2, f); hold on;
+    % ---------------- Fig 4: users within 1 m, and the CAPE gain of the movable array ----------------
+    figure('Name', 'Fig 4 Users within 1 m and CAPE gain of the movable array', 'Position', [30 30 1150 470]);
+    subplot(1, 2, 1); hold on;
+    for q = 1:4
+        s = pS(pCfg{q, 1}, pCfg{q, 2});  y = 100 * pMean(pRow(EN_loc1, s));
+        pLine(pX, y(pI), pCfg{q, 3:7});
+    end
+    pAx(); xlabel(pXl); ylabel('Users within 1 m (%)'); ylim([0 100]);
+    title('Users located within 1 m');
+    legend('Location', 'southoutside', 'NumColumns', 2);   % below the axes: no curve is hidden
+    pAxL = gca;
+    subplot(1, 2, 2); hold on;
     plot([0 20], [1 1], 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
-    y3 = mean(pBer(3, pS(pBb(f), 0)), 2) ./ mean(pBer(3, pS(pBb(f), 1)), 2);
-    y4 = mean(pBer(4, pS(pBb(f), 0)), 2) ./ mean(pBer(4, pS(pBb(f), 1)), 2);
+    y3 = mean(pBer(3, pS(pM, 0)), 2) ./ mean(pBer(3, pS(pM, 1)), 2);
+    y4 = mean(pBer(4, pS(pM, 0)), 2) ./ mean(pBer(4, pS(pM, 1)), 2);
     pLine(pX, y3(pI), cK, ':', 's', 'none', 'List SIC');
     pLine(pX, y4(pI), cR, '-', 'o', cR, 'Cross-AP List (proposed)');
-    pAx(); xlabel(pXl); ylabel('BER ratio'); ylim([0.95 1.2]);
-    title(pTt{f});  if f == 1, legend('Location', 'northwest'); end
+    pAx(); xlabel(pXl); ylabel('BER ratio'); ylim([0.95 1.25]);
+    title('Movable: BER without CAPE / with CAPE'); legend('Location', 'northwest');
+    pAxR = get(gca, 'Position');  pAxQ = get(pAxL, 'Position');
+    set(gca, 'Position', [pAxR(1), pAxQ(2), pAxR(3), pAxQ(4)]);   % same height as the left panel
 end
 
 % ---------------- P10-P12: physical reasons and hardware cost (bars) ----------------
@@ -222,7 +281,8 @@ pBt = {'Estimation aperture', 'Grating-lobe period (2 = no grating lobes)', 'Nea
 pBy = {'Aperture (m)', 'Period (sin\theta)', 'Links (%)', 'Mean |a_i^H a_j|^2', 'Travel (cm)', 'Frames'};
 pBn = {'P10 Benefit: aperture and angle ambiguity', 'P11 Near-field links and user correlation', ...
        'P12 Cost: travel and frames'};
-for g = 1:3
+if paper_set, pG = 1;  pBn{1} = 'Fig 5 Aperture and angle ambiguity'; else, pG = 1:3; end
+for g = pG
     figure('Name', pBn{g}, 'Position', [30 30 1000 420]);
     for f = 1:2
         m = 2 * (g - 1) + f;
