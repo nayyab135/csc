@@ -32,7 +32,9 @@ try, delete(gcp('nocreate')); catch, end   % close a parallel pool left open by 
 %  same fused APs (hard-decision triangulation). CAPE fuses the pilot
 %  LIKELIHOODS instead, then refines every link locally from the fused lobe.
 %  FIGURES: A1-A4 array comparison, B1-B3 role of the difference co-array,
-%  C1-C3 benefit of CAPE (T1, T2, T9 geometry; T3-T17 with fig_old = true).
+%  C1-C3 benefit of CAPE, D1-D8 the co-array parameter by parameter (one
+%  panel per array: physical vs co-array processing of the SAME antennas)
+%  (T1, T2, T9 geometry; T3-T17 with fig_old = true).
 %  SETTINGS OF THE STUDY: fast_mode, nSetE, nSetK, nRealE, nSymE in the
 %  [CODE T] ARRAY SET block (the older settings at the top are NOT used here).
 %  SPEED: vectorised detector (same decisions as the symbol-by-symbol one),
@@ -651,6 +653,16 @@ en_geom     = repmat({'ula', 'ulaw', 'nested', 'nested', 'coprime', 'coprime'}, 
 en_idea     = repmat([0 0 0 1 0 1], 1, 2);   % 1 = add difference co-array processing (same antennas)
 en_cape     = [ones(1, 6), zeros(1, 6)];     % 1 = CAPE, 0 = local per-AP estimation
 en_arr      = repmat([1 2 3 3 4 4], 1, 2);   % physical array (1 ULA, 2 wide ULA, 3 nested, 4 coprime)
+ulaw_coarray = true;          % also run the wide ULA (4 lambda) WITH co-array processing (with / without
+                              % CAPE) so every sparse array has a co-array comparison (+ about 35% run time)
+if ulaw_coarray
+    en_names = [en_names, {sprintf('ULA %g lambda + co-array + CAPE', ulaw_d_lambda), ...
+                           sprintf('ULA %g lambda + co-array, no CAPE', ulaw_d_lambda)}];
+    en_leg   = [en_leg, {sprintf('ULA (%g\\lambda) + co-array', ulaw_d_lambda), ...
+                         sprintf('ULA (%g\\lambda) + co-array, no CAPE', ulaw_d_lambda)}];
+    en_geom  = [en_geom, {'ulaw', 'ulaw'}];
+    en_idea  = [en_idea, 1 1];  en_cape = [en_cape, 1 0];  en_arr = [en_arr, 2 2];
+end
 nSchE       = numel(en_names);
 en_caseName = {'Crowded (N = 8, K = 16)'};
 en_N0       = 8;               % 8 PHYSICAL antennas per AP
@@ -811,6 +823,8 @@ DOA_snr = SNR_dB;             % SNR per antenna per source [dB]
 if fast_mode, DOA_nTr = 60; else, DOA_nTr = 300; end
 DOA_fP = zeros(4, numel(DOA_D));  DOA_fC = DOA_fP;  DOA_pP = DOA_fP;  DOA_pC = DOA_fP;
 DOA_rP = zeros(4, numel(DOA_snr));  DOA_rC = DOA_rP;  DOA_lim = zeros(4, 2);
+DOA_sepB = [0.1 0.2 0.3 0.4 0.5 0.6 0.8 1 1.25 1.5];   % two-user separation [physical beamwidths lambda/aperture]
+DOA_resP = zeros(4, numel(DOA_sepB));  DOA_resC = DOA_resP;   % P(both resolved): physical / co-array MUSIC
 if eqN_study
 fprintf('\n=== [CODE T] DOA test: physical vs co-array MUSIC, %d trials per point ===\n', DOA_nTr);
 tDoa = tic;
@@ -822,6 +836,8 @@ for a = 1:4
         doa_test(EN_geo{sc, 1}, EN_CA{sc, 1}, DOA_D, 10^(DOA_snrD / 10), DOA_T, DOA_nTr, ca_Nsub_max, lambda);
     [~, ~, ~, ~, DOA_rP(a, :), DOA_rC(a, :)] = ...
         doa_test(EN_geo{sc, 1}, EN_CA{sc, 1}, DOA_D0, 10.^(DOA_snr / 10), DOA_T, DOA_nTr, ca_Nsub_max, lambda);
+    [DOA_resP(a, :), DOA_resC(a, :)] = ...
+        doa_resolution(EN_geo{sc, 1}, EN_CA{sc, 1}, DOA_sepB, 10^(DOA_snrD / 10), DOA_T, DOA_nTr, ca_Nsub_max, lambda);
 end
 fprintf('  DOA test done in %.1f min\n', toc(tDoa) / 60);
 end
@@ -835,7 +851,7 @@ if eqN_study
          'EN_nmse', 'EN_be', 'EN_sum', 'EN_loc', 'EN_loc1', 'EN_hit', 'EN_rmse', 'EN_time', 'EN_fh', 'EN_nf', 'EN_seD', ...
          'Ksw', 'Ksw_sch', 'EN_Kbe', 'EN_Ksum', ...
          'DOA_D', 'DOA_D0', 'DOA_T', 'DOA_snr', 'DOA_snrD', 'DOA_nTr', 'DOA_fP', 'DOA_fC', ...
-         'DOA_pP', 'DOA_pC', 'DOA_rP', 'DOA_rC', 'DOA_lim');
+         'DOA_pP', 'DOA_pC', 'DOA_rP', 'DOA_rC', 'DOA_lim', 'DOA_sepB', 'DOA_resP', 'DOA_resC', 'ulaw_coarray');
     fprintf('\nResults saved to codeT_arraycomp_results.mat\n');
 
     %% ===================== [CODE T] FIGURES =====================
@@ -1540,6 +1556,144 @@ if eqN_study
         end
         set(gca, 'YScale', 'log'); xlabel(tXl); ylabel('BER');
         title(tLegC{a}); legend('Location', 'southwest');
+    end
+
+    % ======================================================================
+    %  D1-D8: THE DIFFERENCE CO-ARRAY, ONE PARAMETER PER FIGURE, ONE PANEL PER
+    %  ARRAY. In every panel the SAME antennas are processed two ways:
+    %  physical array (solid, filled marker) and difference co-array (dashed,
+    %  open marker). D1-D4: array-processing test (DOA). D5-D8: inside the
+    %  cell-free system, with CAPE (thick) and without CAPE (thin).
+    % ======================================================================
+    dArr  = 1:4;                                   % ULA lambda/2, ULA 4 lambda, nested, coprime
+    dSys  = 2:4;                                   % arrays with near-field links (system figures)
+    dLimV = @(x, yl, c) plot([x x], yl, ':', 'Color', c, 'LineWidth', 1, 'HandleVisibility', 'off');
+    dFind = @(a, co, cp) find(en_arr == a & (en_idea > 0) == co & en_cape == cp, 1);
+    dVirt = zeros(4, 1);
+    for a = dArr
+        Ga = EN_geo{tArrSch(a), 1};  pa = Ga.pos(:);
+        lg = unique(round((pa - pa.') / Ga.unit));  bk = [0; find(diff(lg) ~= 1); numel(lg)];
+        dVirt(a) = max(diff(bk));                   % hole-free co-array length (virtual antennas)
+    end
+
+    % ---------------- D1 / D2: degrees of freedom ----------------
+    dNm = {'D1 Co-array vs physical: users found vs number of users', ...
+           'D2 Co-array vs physical: ALL users resolved vs number of users'};
+    for f = 1:2
+        figure('Name', dNm{f}, 'Position', [30 30 1500 430]);
+        for a = dArr
+            subplot(1, 4, a); hold on; box on; grid on;
+            if f == 1, yP = 100 * DOA_fP(a, :);  yC = 100 * DOA_fC(a, :);
+            else, yP = 100 * DOA_pP(a, :);  yC = 100 * DOA_pC(a, :); end
+            plot(DOA_D, yP, ['-' tMk{tArrSch(a)}], 'Color', tArrCol{a}, 'MarkerFaceColor', tArrCol{a}, 'LineWidth', 1.6, ...
+                 'DisplayName', sprintf('physical (%d antennas)', numel(EN_geo{tArrSch(a), 1}.pos)));
+            plot(DOA_D, yC, ['--' tMk{tArrSch(a)}], 'Color', tArrCol{a}, 'MarkerFaceColor', 'none', 'LineWidth', 1.6, ...
+                 'DisplayName', sprintf('co-array (%d virtual)', dVirt(a)));
+            dLimV(DOA_lim(a, 1) + 0.5, [0 105], [0.3 0.3 0.3]);  dLimV(DOA_lim(a, 2) + 0.5, [0 105], tArrCol{a});
+            ylim([0 105]); xlabel('number of users D');
+            if f == 1, ylabel('users found [%]'); else, ylabel('all users resolved [%]'); end
+            title(sprintf('%s: max %d physical, %d co-array', tLegC{a}, DOA_lim(a, 1), DOA_lim(a, 2)));
+            legend('Location', 'southwest');
+        end
+    end
+
+    % ---------------- D3: angular resolution of two close users ----------------
+    if exist('DOA_resP', 'var') && ~isempty(DOA_resP)
+        figure('Name', 'D3 Co-array vs physical: resolving two close users', 'Position', [30 30 1500 430]);
+        for a = dArr
+            subplot(1, 4, a); hold on; box on; grid on;
+            plot(DOA_sepB, 100 * DOA_resP(a, :), ['-' tMk{tArrSch(a)}], 'Color', tArrCol{a}, 'MarkerFaceColor', tArrCol{a}, ...
+                 'LineWidth', 1.6, 'DisplayName', 'physical');
+            plot(DOA_sepB, 100 * DOA_resC(a, :), ['--' tMk{tArrSch(a)}], 'Color', tArrCol{a}, 'MarkerFaceColor', 'none', ...
+                 'LineWidth', 1.6, 'DisplayName', 'co-array');
+            ylim([0 105]); xlabel('separation of the two users [physical beamwidths]'); ylabel('both resolved [%]');
+            title(sprintf('%s, %d dB', tLegC{a}, DOA_snrD)); legend('Location', 'southeast');
+        end
+    end
+
+    % ---------------- D4: angle accuracy (RMSE) ----------------
+    figure('Name', sprintf('D4 Co-array vs physical: angle RMSE (%d users)', DOA_D0), 'Position', [30 30 1500 430]);
+    for a = dArr
+        subplot(1, 4, a); hold on; box on; grid on;
+        semilogy(DOA_snr, DOA_rP(a, :), ['-' tMk{tArrSch(a)}], 'Color', tArrCol{a}, 'MarkerFaceColor', tArrCol{a}, ...
+                 'LineWidth', 1.6, 'DisplayName', 'physical');
+        semilogy(DOA_snr, DOA_rC(a, :), ['--' tMk{tArrSch(a)}], 'Color', tArrCol{a}, 'MarkerFaceColor', 'none', ...
+                 'LineWidth', 1.6, 'DisplayName', 'co-array');
+        set(gca, 'YScale', 'log'); xlabel('SNR per antenna per user [dB]'); ylabel('angle RMSE [sin\theta]');
+        title(sprintf('%s, %d users', tLegC{a}, DOA_D0)); legend('Location', 'southwest');
+    end
+
+    % ---------------- D5-D8: inside the cell-free system ----------------
+    dQ  = {'hit', 'loc', 'nmse', 'ber'};
+    dNs = {'D5 Co-array vs physical: angle (true lobe) in the system', ...
+           'D6 Co-array vs physical: position error in the system', ...
+           'D7 Co-array vs physical: channel NMSE in the system', ...
+           'D8 Co-array vs physical: BER in the system (no-loss check)'};
+    dYl = {'true-lobe hit rate [%]', 'median position error [m]', 'channel NMSE', 'BER (Cross-AP List)'};
+    dSt = {'-', '--', ':', '-.'};  dLw = [1.8 1.8 1.1 1.1];
+    dLg = {'physical, CAPE', 'co-array, CAPE', 'physical, no CAPE', 'co-array, no CAPE'};
+    for f = 1:4
+        figure('Name', dNs{f}, 'Position', [30 30 1500 450]);
+        for ia = 1:numel(dSys)
+            a = dSys(ia);
+            subplot(1, numel(dSys), ia); hold on; box on; grid on;
+            cfg = [0 1; 1 1; 0 0; 1 0];               % [co-array, CAPE]
+            nPl = 0;
+            for q = 1:4
+                sc = dFind(a, cfg(q, 1), cfg(q, 2));
+                if isempty(sc), continue; end
+                mf = tArrCol{a};  if cfg(q, 1) == 1, mf = 'none'; end
+                switch dQ{f}
+                    case 'hit',  [m, s] = tNan(tRow(EN_hit, sc));  h = errorbar(SNR_dB, 100 * m, 100 * s);
+                    case 'loc',  h = plot(SNR_dB, tMedN(tRow(EN_loc, sc)));
+                    case 'nmse', X = tRow(EN_nmse, sc);  h = errorbar(SNR_dB, mean(X, 2), std(X, 0, 2) / sqrt(tSet));
+                    case 'ber'
+                        X = tRowB(tDet, sc);  m = max(mean(X, 2), tFl);  s = std(X, 0, 2) / sqrt(tSet);
+                        h = errorbar(SNR_dB, m, min(s, 0.9 * m), s);
+                end
+                set(h, 'LineStyle', dSt{q}, 'Marker', tMk{tArrSch(a)}, 'Color', tArrCol{a}, 'MarkerFaceColor', mf, ...
+                    'LineWidth', dLw(q), 'DisplayName', dLg{q});
+                nPl = nPl + 1;
+            end
+            if f >= 2, set(gca, 'YScale', 'log'); end
+            if f == 1, ylim([0 100]); end
+            xlabel(tXl); ylabel(dYl{f});
+            if isempty(dFind(a, 1, 1))
+                title(sprintf('%s (no co-array scheme in this run)', tLegC{a}));
+            else
+                title(tLegC{a});
+            end
+            if nPl > 0, legend('Location', 'best'); end
+        end
+    end
+
+    % ---------------- console: the co-array, array by array ----------------
+    fprintf('\n=== [CODE T] DIFFERENCE CO-ARRAY, ARRAY BY ARRAY ===\n');
+    fprintf('%-16s %9s %9s %16s %16s', 'array', 'antennas', 'virtual', 'max users P/C', 'resolved P/C');
+    if exist('DOA_resP', 'var') && ~isempty(DOA_resP), fprintf(' %20s', '50%-resolution P/C'); end
+    fprintf('\n');
+    for a = dArr
+        fprintf('%-16s %9d %9d %10d / %-4d %10d / %-4d', strrep(tLegC{a}, '\lambda', 'l'), numel(EN_geo{tArrSch(a), 1}.pos), ...
+                dVirt(a), DOA_lim(a, 1), DOA_lim(a, 2), tRes(a, 1), tRes(a, 2));
+        if exist('DOA_resP', 'var') && ~isempty(DOA_resP)
+            r1 = DOA_sepB(find(DOA_resP(a, :) >= 0.5, 1));  r2 = DOA_sepB(find(DOA_resC(a, :) >= 0.5, 1));
+            if isempty(r1), r1 = NaN; end
+            if isempty(r2), r2 = NaN; end
+            fprintf('   %5.2f / %-5.2f bw', r1, r2);
+        end
+        fprintf('\n');
+    end
+    fprintf('  in the system at %d dB (physical -> co-array, with CAPE): hit [%%], position [m], NMSE, BER\n', SNR_dB(tS12));
+    for a = dSys
+        s0 = dFind(a, 0, 1);  s1 = dFind(a, 1, 1);
+        if isempty(s1), continue; end
+        [h0, ~] = tNan(tRow(EN_hit, s0));  [h1, ~] = tNan(tRow(EN_hit, s1));
+        l0 = tMedN(tRow(EN_loc, s0));  l1 = tMedN(tRow(EN_loc, s1));
+        n0 = mean(tRow(EN_nmse, s0), 2);  n1 = mean(tRow(EN_nmse, s1), 2);
+        b0 = mean(tRowB(tDet, s0), 2);  b1 = mean(tRowB(tDet, s1), 2);
+        fprintf('    %-12s hit %3.0f -> %3.0f   pos %6.2f -> %6.2f   NMSE %.2e -> %.2e   BER %.2e -> %.2e\n', ...
+                strrep(tLegC{a}, '\lambda', 'l'), 100 * h0(tS12), 100 * h1(tS12), l0(tS12), l1(tS12), ...
+                n0(tS12), n1(tS12), b0(tS12), b1(tS12));
     end
 
     % ---- console summary at 10 dB ----
@@ -3819,4 +3973,43 @@ function X = bearing_points(APl, s, rr, sL, hD)
     p1 = asin(max(min(s * d3 ./ dH, 1), -1));
     x = APl + [dH .* exp(1j * p1); dH .* exp(1j * (pi - p1))];
     X = mod(real(x), sL) + 1j * mod(imag(x), sL);
+end
+
+function [pP, pC] = doa_resolution(G, CA, sepB, snr, T, nTr, nSubMax, lambda)
+% [CODE T] Angular resolution of one array: two equal-power far-field users
+% separated by sepB physical beamwidths (lambda / aperture, in sin(theta)),
+% random centre inside the unambiguous sector; T snapshots. They are
+% resolved if both are found within half their separation (one-to-one).
+% Physical MUSIC vs difference-co-array MUSIC on the SAME snapshots.
+    pos = G.pos(:);  N = numel(pos);
+    per = min(2, lambda / G.unit);  w = min(per, 1.9);
+    bw  = lambda / (max(pos) - min(pos));
+    Ns  = min(CA.Nsub, nSubMax);
+    pP = zeros(1, numel(sepB));  pC = pP;
+    for ip = 1:numel(sepB)
+        sep = sepB(ip) * bw;
+        sg  = linspace(-w / 2, w / 2, min(20001, max(4001, ceil(40 * w / sep))));
+        Ap  = exp(1j * 2 * pi * pos * sg / lambda);
+        Av  = exp(1j * 2 * pi * (0:Ns - 1)' * CA.d0 * sg / lambda);
+        nP = 0;  nC = 0;
+        for tr = 1:nTr
+            c = (rand - 0.5) * max(0.9 * w - sep, 0);
+            s = c + [-sep / 2, sep / 2];
+            A = exp(1j * 2 * pi * pos * s / lambda);
+            Y = sqrt(snr / 2) * A * (randn(2, T) + 1j * randn(2, T)) + sqrt(0.5) * (randn(N, T) + 1j * randn(N, T));
+            R = (Y * Y') / T;
+            [U, Dg] = eig((R + R') / 2);  [~, o] = sort(real(diag(Dg)), 'descend');  U = U(:, o);
+            Pm = 1 ./ max(sum(abs(U(:, 3:end)' * Ap) .^ 2, 1), eps);
+            nP = nP + (match_peaks(s, coarray_peaks(sg, Pm, 2), sep / 2, per) == 2);
+            z = R(:);  zu = accumarray(CA.ic, z) ./ max(accumarray(CA.ic, ones(size(z))), 1);
+            zv = zu(CA.loc);  Rss = zeros(Ns);
+            for i = 1:CA.Nv - Ns + 1
+                zi = zv(i:i + Ns - 1);  Rss = Rss + zi * zi';
+            end
+            [U, Dg] = eig((Rss + Rss') / 2);  [~, o] = sort(real(diag(Dg)), 'descend');  U = U(:, o);
+            Pc = 1 ./ max(sum(abs(U(:, 3:end)' * Av) .^ 2, 1), eps);
+            nC = nC + (match_peaks(s, coarray_peaks(sg, Pc, 2), sep / 2, per) == 2);
+        end
+        pP(ip) = nP / nTr;  pC(ip) = nC / nTr;
+    end
 end
