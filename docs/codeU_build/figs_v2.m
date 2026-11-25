@@ -59,7 +59,7 @@ end
 subplot(1, 3, 1); box on; grid on; xlabel(uXl); ylabel('true-lobe hit rate [%]'); ylim([0 100]);
 title(sprintf('Angle: true lobe found (|\\Delta sin\\theta| < %.3f)', tolS)); legend('Location', 'southeast');
 subplot(1, 3, 2); box on; grid on; set(gca, 'YScale', 'log'); xlabel(uXl); ylabel('median position error [m]');
-title('Position error (median over the drops)'); legend('Location', 'northeast');
+title('Position error (median over the drops)'); legend('Location', 'southwest');
 subplot(1, 3, 3); box on; grid on; xlabel(uXl); ylabel('users located within 1 m [%]'); ylim([0 100]);
 title('Users located within 1 m'); legend('Location', 'southeast');
 
@@ -80,7 +80,7 @@ title('Angle accuracy when the true lobe is found (no CAPE)'); legend('Location'
 
 % ---------------- V4: load (number of users), with CAPE ----------------
 nSK = size(EN_Kbe, 3);
-figure('Name', 'V4 Which array vs number of users (with CAPE)', 'Position', [30 30 1150 470]);
+figure('Name', 'V4 Which array vs number of users (with CAPE)', 'Position', [30 30 1150 560]);
 for j = 1:numel(Ksw_sch)
     sc = Ksw_sch(j);  b = en_base(sc);
     if strcmp(bs_kind{b}, 'coarray'), continue; end
@@ -90,9 +90,9 @@ for j = 1:numel(Ksw_sch)
     subplot(1, 2, 2); hold on;  vEB(errorbar(Ksw, mean(Xs, 2), std(Xs, 0, 2) / sqrt(nSK)), b, '-', uCol(b, :), bs_name{b});
 end
 subplot(1, 2, 1); box on; grid on; set(gca, 'YScale', 'log'); xlabel('number of users K'); ylabel('BER (Cross-AP List)');
-title(sprintf('BER vs load, %d dB', SNR_dB(uSi))); legend('Location', 'southeast');
+title(sprintf('BER vs load, %d dB', SNR_dB(uSi))); legend('Location', 'southoutside', 'NumColumns', 3);
 subplot(1, 2, 2); box on; grid on; xlabel('number of users K'); ylabel('sum SE [bit/s/Hz]');
-title(sprintf('Sum SE vs load, %d dB', SNR_dB(uSi))); legend('Location', 'southeast');
+title(sprintf('Sum SE vs load, %d dB', SNR_dB(uSi))); legend('Location', 'southoutside', 'NumColumns', 3);
 
 % ---------------- V5: physical and hardware metrics (benefit vs cost) ----------------
 rs0 = rng;  rng(11);
@@ -121,7 +121,7 @@ for ia = 1:nA
     vM(ia, 4) = mu / 300;
 end
 rng(rs0);
-vShort = strrep(strrep(strrep(bs_name(vPhys), 'Movable (uniform half)', 'Mov. unif.'), 'Movable (sparse half)', 'Mov. sparse'), 'Dense ULA', 'ULA');
+vShort = strrep(strrep(strrep(strrep(strrep(bs_name(vPhys), 'Movable (uniform half)', 'Mov-U'), 'Movable (sparse half)', 'Mov-S'), 'Dense ULA', 'ULA'), 'Coprime', 'Copr.'), 'Nested', 'Nest.');
 figure('Name', 'V5 Why the arrays differ: benefit and hardware cost', 'Position', [30 30 1500 760]);
 vY = {'estimation aperture [m]', 'near-field links [%]', 'grating-lobe period in sin\theta (2 = none)', ...
       'mean |a_i^H a_j|^2 between hotspot users', 'travel of the outer element [cm]', 'pilot frames per estimate'};
@@ -129,12 +129,14 @@ vT = {'Aperture used for estimation', 'Links in the near field', 'Angle ambiguit
       'User-channel correlation at the data positions', 'Mechanical cost: travel', 'Latency cost: frames (user must stay still)'};
 for mI = 1:6
     subplot(2, 3, mI); hold on; box on; grid on;
-    for ia = 1:nA, bar(ia, vM(ia, mI), 0.6, 'FaceColor', uCol(vPhys(ia), :)); end
+    for ia = 1:nA
+        patch(ia + [-0.3 0.3 0.3 -0.3], [0 0 vM(ia, mI) vM(ia, mI)], uCol(vPhys(ia), :), 'EdgeColor', 'k');
+    end
     set(gca, 'XTick', 1:nA, 'XTickLabel', vShort); xlim([0.4 nA + 0.6]); ylabel(vY{mI}); title(vT{mI});
 end
 
 % ---------------- V6: movable array vs the best static array (paired) ----------------
-figure('Name', 'V6 Movable array vs coprime (paired, same drops)', 'Position', [30 30 1150 820]);
+figure('Name', 'V6 Movable array vs coprime (paired, same drops)', 'Position', [30 30 1150 950]);
 vT6 = {'BER(coprime) / BER(movable)  (>1: movable better)', 'true-lobe hit rate gain [points]', ...
        'position error change [%]  (<0: movable better)', 'NMSE change [%]  (<0: movable better)'};
 for f = 1:4
@@ -168,7 +170,7 @@ for f = 1:4
             else, vEB(h, b, ':', 'none', [bs_name{b} ', no CAPE']); end
         end
     end
-    xlabel(uXl); ylabel(vT6{f}); legend('Location', 'best');
+    xlabel(uXl); ylabel(vT6{f}); legend('Location', 'southoutside', 'NumColumns', 2);
 end
 
 % ---------------- V7: co-array, paired gains (same antennas) ----------------
@@ -210,7 +212,7 @@ for f = 1:4
 end
 
 % ---------------- V8: CAPE vs no CAPE (angle and localisation) ----------------
-figure('Name', 'V8 CAPE: angle and localisation (with vs without CAPE)', 'Position', [30 30 1500 470]);
+figure('Name', 'V8 CAPE: angle and localisation (with vs without CAPE)', 'Position', [30 30 1500 640]);
 for b = vSpar
     for cp = [1 0]
         sc = uSc(b, cp + 1);
@@ -225,11 +227,11 @@ for b = vSpar
     end
 end
 subplot(1, 3, 1); box on; grid on; xlabel(uXl); ylabel('true-lobe hit rate [%]'); ylim([0 100]);
-title('Angle: true lobe found'); legend('Location', 'southeast');
+title('Angle: true lobe found'); legend('Location', 'southoutside', 'NumColumns', 2);
 subplot(1, 3, 2); box on; grid on; set(gca, 'YScale', 'log'); xlabel(uXl); ylabel('median position error [m]');
-title('Position: CAPE vs local triangulation'); legend('Location', 'northeast');
+title('Position: CAPE vs local triangulation'); legend('Location', 'southoutside', 'NumColumns', 2);
 subplot(1, 3, 3); box on; grid on; xlabel(uXl); ylabel('users located within 1 m [%]'); ylim([0 100]);
-title('Users located within 1 m'); legend('Location', 'northwest');
+title('Users located within 1 m'); legend('Location', 'southoutside', 'NumColumns', 2);
 
 % ---------------- V9: CAPE gain per detector (List SIC vs proposed Cross-AP List) ----------------
 vG = [vSpar(:).'];

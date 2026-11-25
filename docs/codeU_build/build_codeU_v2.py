@@ -178,7 +178,8 @@ rep("""    [Hh, Cs, xh, nfus, aErr] = csi_nf_estimate(Ht, ST.R2, ST.NF, bet, K, 
 
 # ------------------------------------------ triangulation (from Code T v3)
 i = codeT.index("function xh = local_triangulate(sE, qE, NFm, beta, FG)")
-src = src.rstrip() + "\n\n" + codeT[i:].rstrip() + "\n"
+j = codeT.find("function [pP, pC] = doa_resolution", i)      # only the two triangulation functions
+src = src.rstrip() + "\n\n" + codeT[i:(j if j > 0 else len(codeT))].rstrip() + "\n"
 (REPO / 'Code_U_v2.m').write_text(src)
 
 plot = (r"""%% PLOT_CODEU_V2_FIGURES  Redraw the Code U v2 figures without rerunning the simulation.
