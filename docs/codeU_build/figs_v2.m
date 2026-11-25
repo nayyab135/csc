@@ -17,7 +17,9 @@ vRowS = @(d, sc) reshape(EN_sum(d, sc, 1, :, :), uNsnr, uSet);
 vPhys = find(~strcmp(bs_kind, 'coarray'));     % physical processing: one per array
 vSpar = vPhys(~strcmp(bs_geom(vPhys), 'ula')); % sparse arrays (incl. movable)
 vSma  = find(strcmp(bs_kind, 'sma'));
-bCop  = find(strcmp(bs_geom, 'coprime') & strcmp(bs_kind, 'plain'), 1);   % best static array of Code T
+bCop  = find(strcmp(bs_geom, 'coprime') & strcmp(bs_kind, 'plain'), 1);   % reference: best static array of Code T
+if isempty(bCop), bCop = find(strcmp(bs_geom, 'nested') & strcmp(bs_kind, 'plain'), 1); end   % (or nested)
+vRef  = lower(bs_name{bCop});
 vEB   = @(h, b, ls, mf, nm) set(h, 'LineStyle', ls, 'Marker', uMk{b}, 'Color', uCol(b, :), ...
                                 'MarkerFaceColor', mf, 'LineWidth', 1.4, 'DisplayName', nm);
 
@@ -136,8 +138,8 @@ for mI = 1:6
 end
 
 % ---------------- V6: movable array vs the best static array (paired) ----------------
-figure('Name', 'V6 Movable array vs coprime (paired, same drops)', 'Position', [30 30 1150 950]);
-vT6 = {'BER(coprime) / BER(movable)  (>1: movable better)', 'true-lobe hit rate gain [points]', ...
+figure('Name', sprintf('V6 Movable array vs %s (paired, same drops)', vRef), 'Position', [30 30 1150 950]);
+vT6 = {sprintf('BER(%s) / BER(movable)  (>1: movable better)', vRef), 'true-lobe hit rate gain [points]', ...
        'position error change [%]  (<0: movable better)', 'NMSE change [%]  (<0: movable better)'};
 for f = 1:4
     subplot(2, 2, f); hold on; box on; grid on;
@@ -179,6 +181,7 @@ for b = find(strcmp(bs_kind, 'coarray'))
     bp = find(strcmp(bs_geom, bs_geom{b}) & strcmp(bs_kind, 'plain'), 1);
     if ~isempty(bp), vCoP = [vCoP; bp b]; vCoN{end + 1} = bs_name{bp}; end %#ok<AGROW>
 end
+if ~isempty(vCoP)                              % only when a co-array scheme is present
 figure('Name', 'V7 Co-array: paired gains vs SNR (same antennas)', 'Position', [30 30 1150 820]);
 vT7 = {'position error change [%]  (<0 = co-array better)', 'true-lobe hit rate change [points]', ...
        'NMSE change [%]  (<0 = better)', 'BER change [%] (Cross-AP List)  (no loss = around 0)'};
@@ -211,6 +214,8 @@ for f = 1:4
     xlabel(uXl); ylabel(vT7{f}); legend('Location', 'best');
 end
 
+end
+
 % ---------------- V8: CAPE vs no CAPE (angle and localisation) ----------------
 figure('Name', 'V8 CAPE: angle and localisation (with vs without CAPE)', 'Position', [30 30 1500 640]);
 for b = vSpar
@@ -235,11 +240,12 @@ title('Users located within 1 m'); legend('Location', 'southoutside', 'NumColumn
 
 % ---------------- V9: CAPE gain per detector (List SIC vs proposed Cross-AP List) ----------------
 vG = [vSpar(:).'];
-figure('Name', 'V9 CAPE gain: List SIC vs the proposed Cross-AP List', 'Position', [30 30 1500 420 * ceil(numel(vG) / 3)]);
+vNc = min(3, numel(vG));                       % panels per row
+figure('Name', 'V9 CAPE gain: List SIC vs the proposed Cross-AP List', 'Position', [30 30 500 * vNc 420 * ceil(numel(vG) / vNc)]);
 vDs = {'--', '-'};  vDl = {'List SIC', 'Cross-AP List (proposed)'};
 for ig = 1:numel(vG)
     b = vG(ig);  sc = uSc(b, 2);  sn = uSc(b, 1);
-    subplot(ceil(numel(vG) / 3), 3, ig); hold on; box on; grid on;
+    subplot(ceil(numel(vG) / vNc), vNc, ig); hold on; box on; grid on;
     plot(SNR_dB, ones(size(SNR_dB)), 'k-', 'LineWidth', 0.8, 'HandleVisibility', 'off');
     for id = 1:2
         X = vRowB(id + 2, sn);  Y = vRowB(id + 2, sc);  mx = mean(X, 2);  my = mean(Y, 2);  ok = mx > 0 & my > 0;
